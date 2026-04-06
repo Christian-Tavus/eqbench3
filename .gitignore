@@ -4,3 +4,6 @@ backup
 *.log
 __pycache__/
 *.pyc
+.venv/
+.vscode/
+persona_configs/
