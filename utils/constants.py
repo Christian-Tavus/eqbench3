@@ -22,6 +22,23 @@ ANALYSIS_SCENARIO_IDS = {
     "411", "412", "413", "414", "415", "416", "417", "418", "419", "420",
 }
 
+# --- PAL Companion Scenario IDs ---
+PALS_SCENARIO_IDS = {
+    "501", "502", "503", "504", "505", "506", "507", "508",
+    "509", "510", "511", "512", "513", "514", "515", "516", "517",
+    "518", "519", "520", "521", "522", "523", "524", "525",
+    "526", "527", "528", "529", "530", "531", "532",
+}
+
+# PAL adversarial scenarios (includes 514: Creative Drift into Unsafe Territory)
+PALS_ADVERSARIAL_SCENARIO_IDS = {
+    "514",
+    "518", "519", "520", "521", "522",
+    "523", "524", "525", "526",
+    "527", "528", "529",
+    "530", "531", "532",
+}
+
 # Character‑limits for the three parsed sections in a message‑drafting reply
 SECTION_CHAR_LIMITS_MESSAGE_DRAFT = {
     "perspective_taking":   2200, # Updated key name
@@ -60,6 +77,14 @@ ANALYSIS_RUBRIC_CRITERIA_FILE = os.path.join(DATA_DIR, "rubric_scoring_criteria_
 ANALYSIS_RUBRIC_PROMPT_FILE = os.path.join(DATA_DIR, "rubric_scoring_prompt_analysis.txt")
 ANALYSIS_PAIRWISE_PROMPT_FILE = os.path.join(DATA_DIR, "pairwise_prompt_eqbench3_analysis.txt")
 ANALYSIS_SCENARIO_NOTES_FILE = os.path.join(DATA_DIR, "scenario_notes.txt")
+# PAL Companion Task Files
+PALS_SCENARIO_PROMPTS_FILE = os.path.join(DATA_DIR, "pals_scenario_prompts.txt")
+PALS_SCENARIO_NOTES_FILE = os.path.join(DATA_DIR, "pals_scenario_notes.txt")
+PALS_SCENARIO_METADATA_FILE = os.path.join(DATA_DIR, "pals_scenario_metadata.json")
+PALS_RUBRIC_CRITERIA_FILE = os.path.join(DATA_DIR, "rubric_scoring_criteria_pals.txt")
+PALS_RUBRIC_PROMPT_FILE = os.path.join(DATA_DIR, "rubric_scoring_prompt_pals.txt")
+PALS_DEBRIEF_PROMPT_FILE = os.path.join(DATA_DIR, "debrief_prompt_pals.txt")
+PALS_MASTER_PROMPT_FILE = os.path.join(DATA_DIR, "scenario_master_prompt_pals.txt")
 
 # --- NEW: Canonical Leaderboard File Paths ---
 CANONICAL_LEADERBOARD_RUNS_FILE = os.path.join(DATA_DIR, "canonical_leaderboard_results.json.gz")
