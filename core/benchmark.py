@@ -251,6 +251,9 @@ def calculate_final_rubric_score(run_data: Dict[str, Any]) -> Tuple[Optional[flo
     for iter_str, scenario_dict in scenario_tasks_data.items():
         if not isinstance(scenario_dict, dict): continue
         for sid, task_info in scenario_dict.items():
+            # PAL scenarios have their own fitness score — exclude from standard EQ
+            if sid in C.PALS_SCENARIO_IDS:
+                continue
             if isinstance(task_info, dict) and task_info.get("status") == "rubric_scored":
                 tasks_considered += 1
                 rubric_scores = task_info.get("rubric_scores")
