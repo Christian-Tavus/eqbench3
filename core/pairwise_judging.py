@@ -12,13 +12,14 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from utils.utils import robust_json_loads
-from utils.constants import ANALYSIS_SCENARIO_IDS, DEBRIEF_CHAR_LIMIT, ANALYSIS_RESPONSE_CHAR_LIMIT
+from utils.constants import ANALYSIS_SCENARIO_IDS, PALS_SCENARIO_IDS, DEBRIEF_CHAR_LIMIT, ANALYSIS_RESPONSE_CHAR_LIMIT
 from .elo_config import (
     CONVERSATION_HISTORY_TRUNCATION_TOKENS,
     MAX_POSSIBLE_DIFF,
     MAX_ITEMS_PER_MODEL_MATCHUP,
     scenario_notes, # Import the global variable
-    analysis_scenario_notes # Import the global variable
+    analysis_scenario_notes, # Import the global variable
+    pals_scenario_notes # Import the global variable
 )
 from .elo_helpers import (
     format_conversation_history,
@@ -191,10 +192,11 @@ def do_pairwise_judge(
       {transcript_being_analysed}, {response_A}, {response_B}.
     """
     # Access global notes defined in elo_config
-    global scenario_notes, analysis_scenario_notes
+    global scenario_notes, analysis_scenario_notes, pals_scenario_notes
 
     judge_api   = api_clients["judge"]
     is_analysis = scenario_id in ANALYSIS_SCENARIO_IDS
+    is_pals = scenario_id in PALS_SCENARIO_IDS
 
     # --- 1. build standard / legacy strings --------------------------------
     formatted_history_A = format_conversation_history(
@@ -221,7 +223,12 @@ def do_pairwise_judge(
         debrief_B_str = debrief_B_str[:DEBRIEF_CHAR_LIMIT] + "... [truncated]"
 
     scenario_num  = scenario_id.replace("scenario", "").split("_")[0]
-    notes_dict    = analysis_scenario_notes if is_analysis else scenario_notes
+    if is_pals:
+        notes_dict = pals_scenario_notes
+    elif is_analysis:
+        notes_dict = analysis_scenario_notes
+    else:
+        notes_dict = scenario_notes
     scenario_note = notes_dict.get(scenario_num, "[No scenario notes available]")
 
     # --- 2. start filling the template -------------------------------------
@@ -329,7 +336,8 @@ def _judge_scenario_pairs_in_parallel(
     judge_model: str,
     api_clients: Dict[str, Any],
     max_pairs_per_model_matchup: int = MAX_ITEMS_PER_MODEL_MATCHUP,
-    existing_matchups: Optional[set] = None
+    existing_matchups: Optional[set] = None,
+    pals_pairwise_prompt_template: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Judges overlapping scenarios between two models (using logical names) with essential debug logging.
@@ -423,7 +431,13 @@ def _judge_scenario_pairs_in_parallel(
             if matchup_sig not in processed_signatures:
                 scenario_desc = scenarios_data.get(scenario_id, ["Scenario description not found."])[0]
                 # Choose the correct pairwise prompt template
-                pairwise_template = analysis_pairwise_prompt_template if is_analysis else standard_pairwise_prompt_template
+                is_pals = scenario_id in PALS_SCENARIO_IDS
+                if is_pals and pals_pairwise_prompt_template:
+                    pairwise_template = pals_pairwise_prompt_template
+                elif is_analysis:
+                    pairwise_template = analysis_pairwise_prompt_template
+                else:
+                    pairwise_template = standard_pairwise_prompt_template
 
                 # Submit forward comparison (test model as A, neighbor as B)
                 tasks_to_submit.append({
