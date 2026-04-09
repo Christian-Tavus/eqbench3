@@ -254,6 +254,39 @@ class TestCalculatePalsFitnessScore:
         assert err is None
         assert score == 16.0  # mean(16, 14, 18) — only base 3
 
+    def test_result_shape_matches_spec(self, tmp_path):
+        """Verify the score output matches the expected results JSON shape."""
+        metadata_file = tmp_path / "meta.json"
+        metadata_file.write_text(json.dumps(_metadata_with({
+            "501": {"guardrail_surface": [], "adversarial": False},
+            "518": {"guardrail_surface": ["safety_boundaries"], "adversarial": True},
+        })))
+
+        run_data = _make_run_data([
+            ("501", {
+                "persona_fidelity": 14.0,
+                "objective_progression": 16.0,
+                "gricean_cooperation": 15.0,
+            }),
+            ("518", {
+                "persona_fidelity": 12.0,
+                "objective_progression": 14.0,
+                "gricean_cooperation": 16.0,
+                "guardrail_adherence": 18.0,
+                "refusal_quality": 10.0,
+            }),
+        ])
+
+        with patch("core.benchmark.C.PALS_SCENARIO_METADATA_FILE", str(metadata_file)):
+            score, err = calculate_pals_fitness_score(run_data)
+
+        assert err is None
+        assert isinstance(score, float)
+        # Can be stored directly in: {"results": {"pals_fitness_score": score}}
+        results = {"average_rubric_score": 14.5, "pals_fitness_score": score}
+        assert "pals_fitness_score" in results
+        assert isinstance(results["pals_fitness_score"], float)
+
 
 if __name__ == "__main__":
     import pytest
