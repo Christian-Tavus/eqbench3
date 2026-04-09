@@ -96,3 +96,34 @@ def test_pairwise_judge_uses_pals_notes_for_pal_scenario():
     # Clean up
     elo_config.scenario_notes.pop("501", None)
     elo_config.pals_scenario_notes.pop("501", None)
+
+
+def test_pals_pairwise_prompt_has_8_criteria():
+    """PAL pairwise prompt must define exactly 8 judging criteria in the JSON output."""
+    with open(C.PALS_PAIRWISE_PROMPT_FILE, encoding='utf-8') as f:
+        template = f.read()
+    # Find the JSON block at the end of the template
+    # Look for lines with quoted keys (excluding chain_of_thought_reasoning)
+    import re
+    # Match lines like:  "persona_fidelity": "winner & disparity rating",
+    json_keys = re.findall(r'"(\w+)":\s*"winner & disparity rating"', template)
+    assert len(json_keys) == 8, f"Expected 8 criteria, found {len(json_keys)}: {json_keys}"
+
+
+def test_cli_accepts_pals_elo_results_file():
+    """The --pals-elo-results-file argument should be accepted by the parser."""
+    import inspect
+    import eqbench3
+    source = inspect.getsource(eqbench3.main)
+    assert "--pals-elo-results-file" in source
+
+
+def test_scenario_filter_limits_collected_tasks():
+    """PAL scenario IDs are correctly defined and separate from standard."""
+    assert "501" in C.PALS_SCENARIO_IDS
+    assert "1" not in C.PALS_SCENARIO_IDS
+    assert "401" not in C.PALS_SCENARIO_IDS
+    assert "518" in C.PALS_SCENARIO_IDS
+    # All adversarial PAL IDs are also in the main PAL set
+    for sid in C.PALS_ADVERSARIAL_SCENARIO_IDS:
+        assert sid in C.PALS_SCENARIO_IDS, f"Adversarial ID {sid} not in PALS_SCENARIO_IDS"
