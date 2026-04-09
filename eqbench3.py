@@ -481,6 +481,79 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
 
     print(BOTTOM)
 
+def print_adversarial_summary(adversarial_results: Dict[str, Any]):
+    """Prints a pass/fail breakdown for adversarial PAL scenarios."""
+    if not adversarial_results:
+        return
+
+    import unicodedata
+
+    def cell_width(s: str) -> int:
+        w = 0
+        for ch in s: w += 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+        return w
+
+    def crop_to_width(s: str, max_w: int, ellipsis="…") -> str:
+        s = str(s)
+        if cell_width(s) <= max_w: return s + " " * (max_w - cell_width(s))
+        keep_w = max_w - cell_width(ellipsis)
+        out, current_w = "", 0
+        for ch in s:
+            ch_w = 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+            if current_w + ch_w > keep_w: break
+            out += ch
+            current_w += ch_w
+        return out + ellipsis + " " * (max_w - cell_width(out + ellipsis))
+
+    COL_PAD = 1
+    ID_W = 5
+    RESULT_W = 6
+    DOMAIN_W = 22
+    CONDITION_W = 42
+    cols = [ID_W, RESULT_W, DOMAIN_W, CONDITION_W]
+    LINE = "─"
+
+    segments = [LINE * (w + 2 * COL_PAD) for w in cols]
+    ROW_SEP_INNER = "┼".join(segments)
+    ROW_SEP = f"├{ROW_SEP_INNER}┤"
+    BOX_W = len(ROW_SEP)
+    TOP = "┌" + LINE * (BOX_W - 2) + "┐"
+    BOTTOM = "└" + LINE * (BOX_W - 2) + "┘"
+    TITLE_SEP = "╞" + LINE * (BOX_W - 2) + "╡"
+
+    total = len(adversarial_results)
+    passed = sum(1 for r in adversarial_results.values() if r["passed"])
+    title = f"Adversarial Scenarios: {passed}/{total} Passed"
+
+    headers = ["ID", "Result", "Domain", "Pass Condition"]
+    header_cells = [crop_to_width(h, w).center(w) for h, w in zip(headers, cols)]
+    header_parts = [f"{' ' * COL_PAD}{c}{' ' * COL_PAD}" for c in header_cells]
+    header_row = f"│{'│'.join(header_parts)}│"
+
+    print("\n" + TOP)
+    print(f"│{title.center(BOX_W - 2)}│")
+    print(TITLE_SEP)
+    print(header_row)
+    print(ROW_SEP)
+
+    for sid in sorted(adversarial_results.keys(), key=int):
+        r = adversarial_results[sid]
+        result_str = "PASS" if r["passed"] else "FAIL"
+        domain_str = r.get("subdomain", r.get("domain", ""))
+        condition_str = r.get("pass_condition", "") or ""
+
+        cells = [
+            crop_to_width(sid, ID_W),
+            crop_to_width(result_str, RESULT_W),
+            crop_to_width(domain_str, DOMAIN_W),
+            crop_to_width(condition_str, CONDITION_W),
+        ]
+        row_parts = [f"{' ' * COL_PAD}{c}{' ' * COL_PAD}" for c in cells]
+        print(f"│{'│'.join(row_parts)}│")
+
+    print(BOTTOM)
+
+
 def _reset_model_data(model_name: str, local_runs_file: str, local_elo_file: str):
     """
     Remove all entries for the logical `model_name` from the LOCAL files:
@@ -726,7 +799,17 @@ def main():
                 logging.error(f"Failed to load or print Rubric leaderboard summary: {e}", exc_info=True)
         elif not run_rubric_flag:
             logging.info("Skipping Rubric leaderboard display because Rubric scoring was disabled.")
-            
+
+        # Print Adversarial Summary if PAL data is present
+        if run_rubric_flag and (args.pals or args.include_pals):
+            try:
+                final_run_data_for_adv = load_json_file(args.runs_file).get(run_key, {})
+                adv_results = final_run_data_for_adv.get("results", {}).get("adversarial_results", {})
+                if adv_results:
+                    print_adversarial_summary(adv_results)
+            except Exception as e:
+                logging.error(f"Failed to print adversarial summary: {e}", exc_info=True)
+
         # Print Leaderboard Summary if ELO was run successfully
         if run_elo_flag:
             # Check the status in the run file to see if ELO step had an error stored
