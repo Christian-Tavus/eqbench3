@@ -18,7 +18,10 @@ from utils.constants import (
     STANDARD_PAIRWISE_PROMPT_FILE, # Used directly
     ANALYSIS_PAIRWISE_PROMPT_FILE, # Used directly
     STANDARD_SCENARIO_NOTES_FILE, # Used directly
-    ANALYSIS_SCENARIO_NOTES_FILE # Used directly
+    ANALYSIS_SCENARIO_NOTES_FILE, # Used directly
+    PALS_PAIRWISE_PROMPT_FILE,
+    PALS_SCENARIO_NOTES_FILE,
+    PALS_SCENARIO_IDS
 )
 
 # Import from new local modules
@@ -30,7 +33,8 @@ from .elo_config import (
     WIN_MARGIN_BIN_SIZE_FOR_CI,
     RANK_WINDOW,
     scenario_notes, # Import the global variable
-    analysis_scenario_notes # Import the global variable
+    analysis_scenario_notes, # Import the global variable
+    pals_scenario_notes # Import the global variable
 )
 from .elo_helpers import (
     load_scenario_notes,
@@ -150,7 +154,7 @@ def run_elo_analysis_eqbench3(
     logging.info(f"[ELO] Leaderboard ELO: {leaderboard_elo_file}")
     logging.info(f"[ELO] Local ELO: {local_elo_file}")
     # Access global notes defined in elo_config
-    global scenario_notes, analysis_scenario_notes
+    global scenario_notes, analysis_scenario_notes, pals_scenario_notes
     elo_error_message = None # Initialize error message
 
     # --- Load ELO Data ---
@@ -204,11 +208,27 @@ def run_elo_analysis_eqbench3(
         elo_error_message = f"Failed to load pairwise prompts: {e}"
         return {}, elo_error_message # Return empty dict and error
 
+    # Load PAL pairwise prompt (optional — only needed when PAL scenarios are present)
+    pals_pairwise_prompt_template = None
+    try:
+        if Path(PALS_PAIRWISE_PROMPT_FILE).exists():
+            pals_pairwise_prompt_template = Path(PALS_PAIRWISE_PROMPT_FILE).read_text(encoding="utf-8")
+            logging.info(f"Loaded PAL pairwise prompt from {PALS_PAIRWISE_PROMPT_FILE}")
+    except Exception as e:
+        logging.warning(f"Could not load PAL pairwise prompt: {e}. PAL scenarios will use standard prompt.")
+
     # Load scenario notes (standard and analysis) - Use the global vars after loading
     scenario_notes.update(load_scenario_notes(STANDARD_SCENARIO_NOTES_FILE))
     analysis_scenario_notes.update(load_scenario_notes(ANALYSIS_SCENARIO_NOTES_FILE))
     logging.info(f"Loaded {len(scenario_notes)} standard scenario notes.")
     logging.info(f"Loaded {len(analysis_scenario_notes)} analysis scenario notes.")
+
+    try:
+        if Path(PALS_SCENARIO_NOTES_FILE).exists():
+            pals_scenario_notes.update(load_scenario_notes(PALS_SCENARIO_NOTES_FILE))
+            logging.info(f"Loaded {len(pals_scenario_notes)} PAL scenario notes.")
+    except Exception as e:
+        logging.warning(f"Could not load PAL scenario notes: {e}")
 
 
     # --- Collect Completed Tasks from Merged Run Data ---
@@ -363,6 +383,7 @@ def run_elo_analysis_eqbench3(
                     api_clients,
                     cap,                            # ✱ per‑opponent cap ✱
                     current_existing_matchups,      # Pass the set of matchups already seen/judged
+                    pals_pairwise_prompt_template=pals_pairwise_prompt_template,
                 )
 
             with ThreadPoolExecutor(max_workers=outer_workers) as pool:
