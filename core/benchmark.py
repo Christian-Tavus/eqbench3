@@ -293,7 +293,10 @@ def calculate_final_rubric_score(run_data: Dict[str, Any]) -> Tuple[Optional[flo
     return round(final_average_score, 2), None
 
 
-def calculate_pals_fitness_score(run_data: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+def calculate_pals_fitness_score(
+    run_data: Dict[str, Any],
+    pals_metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[Optional[float], Optional[str]]:
     """
     Calculates the PAL Fitness Score across PAL scenarios in a run.
     For each PAL scenario, determines which fitness criteria apply based on metadata:
@@ -304,12 +307,12 @@ def calculate_pals_fitness_score(run_data: Dict[str, Any]) -> Tuple[Optional[flo
     Scores of -1 are treated as N/A and excluded.
     Returns (average_score, error_message).
     """
-    # Load PAL metadata for criteria applicability
-    pals_metadata = {}
-    try:
-        pals_metadata = json.loads(Path(C.PALS_SCENARIO_METADATA_FILE).read_text(encoding='utf-8'))
-    except Exception as e:
-        logging.warning(f"Failed to load PAL metadata for fitness scoring: {e}. Using base criteria for all scenarios.")
+    if pals_metadata is None:
+        try:
+            pals_metadata = json.loads(Path(C.PALS_SCENARIO_METADATA_FILE).read_text(encoding='utf-8'))
+        except Exception as e:
+            logging.warning(f"Failed to load PAL metadata for fitness scoring: {e}. Using base criteria for all scenarios.")
+            pals_metadata = {}
 
     BASE_FITNESS_CRITERIA = {"persona_fidelity", "objective_progression", "gricean_cooperation"}
 
@@ -668,6 +671,10 @@ def run_eq_bench3(
         if "api_model_id" not in current_run_data: update_payload["api_model_id"] = api_model_id
         if "test_model" not in current_run_data: update_payload["test_model"] = model_name # Backfill legacy field
         if "iterations_requested" not in current_run_data: update_payload["iterations_requested"] = iterations
+        # Update judge model if it changed (e.g. switching judge on resume)
+        if judge_model and current_run_data.get("judge_model") != judge_model:
+            update_payload["judge_model"] = judge_model
+            logging.info(f"Updating judge model for run {run_key}: '{current_run_data.get('judge_model')}' -> '{judge_model}'")
         # Add missing file paths if needed (less critical now, but good for consistency)
         if "scenario_master_prompt_file" not in current_run_data: update_payload["scenario_master_prompt_file"] = C.STANDARD_MASTER_PROMPT_FILE
         if "message_drafting_master_prompt_file" not in current_run_data: update_payload["message_drafting_master_prompt_file"] = C.MESSAGE_DRAFTING_MASTER_PROMPT_FILE
@@ -708,7 +715,7 @@ def run_eq_bench3(
 
             updated_scen_dict = {}
             for sid, task_info in scenario_dict.items():
-                if isinstance(task_info, dict) and task_info.get("status") == "rubric_scored":
+                if isinstance(task_info, dict) and task_info.get("status") in ("rubric_scored", "error"):
                     new_task_info = task_info.copy()
                     is_analysis = sid in C.ANALYSIS_SCENARIO_IDS
                     reset_status = "scenario_completed" if is_analysis else "completed"
@@ -773,8 +780,7 @@ def run_eq_bench3(
         # Load PAL scenario notes (for rubric judge context)
         try:
             notes_content = Path(C.PALS_SCENARIO_NOTES_FILE).read_text(encoding='utf-8')
-            import re as _re
-            sections = _re.split(r"^# (\d+)\s*$", notes_content, flags=_re.MULTILINE)
+            sections = re.split(r"^# (\d+)\s*$", notes_content, flags=re.MULTILINE)
             for i in range(1, len(sections), 2):
                 sid = sections[i].strip()
                 note_text = sections[i + 1].strip() if i + 1 < len(sections) else ""
@@ -812,10 +818,9 @@ def run_eq_bench3(
         if not analysis_master_template.strip(): raise ValueError("Analysis master prompt template file is empty.")
         logging.info(f"Loaded analysis master prompt template from {C.ANALYSIS_MASTER_PROMPT_FILE}")
 
+        # PAL scenarios are treated as NO_RP in conversation.py, so the master
+        # template is never applied.  No need to load it.
         pals_master_template = None
-        if run_pals:
-            pals_master_template = Path(C.PALS_MASTER_PROMPT_FILE).read_text(encoding='utf-8')
-            logging.info(f"Loaded PAL master prompt template from {C.PALS_MASTER_PROMPT_FILE}")
 
     except Exception as e:
         logging.error(f"Failed to load one or more master prompt templates: {e}", exc_info=True)
@@ -938,6 +943,8 @@ def run_eq_bench3(
             "mode": "pals_only" if run_pals_only else "include_pals",
             "has_greeting": bool(pal_persona_config and pal_persona_config.greeting),
             "persona_model": pal_persona_config.model if pal_persona_config else None,
+            "persona_name": pal_persona_config.persona_name if pal_persona_config else None,
+            "persona_id": pal_persona_config.persona_id if pal_persona_config else None,
         }
         update_run_data(local_runs_file, run_key, {"pal_config": pal_meta})
 
@@ -970,6 +977,11 @@ def run_eq_bench3(
                     full_system_prompt = pal_persona_config.build_system_prompt()
                     chosen_system_messages = [{"role": "system", "content": full_system_prompt}]
                     if pal_persona_config.greeting:
+                        # The greeting is prepended as a fake assistant turn so the
+                        # model continues from the persona's voice.  Note: this
+                        # appears in the conversation history sent to the judge, so
+                        # the judge may score it — this is intentional since the
+                        # greeting is part of the persona configuration being evaluated.
                         chosen_system_messages.append({"role": "assistant", "content": pal_persona_config.greeting})
                 chosen_scenario_notes = pals_scenario_notes.get(scenario_id, "")
             elif is_analysis:
@@ -1192,29 +1204,39 @@ def run_eq_bench3(
         logging.info(f"Calculating final average rubric score from local file: {local_runs_file}...")
         # Load the latest local data for calculation
         final_local_run_data_for_rubric = load_json_file(local_runs_file).get(run_key, {})
-        avg_rubric_score, rubric_err = calculate_final_rubric_score(final_local_run_data_for_rubric)
+
+        # In PAL-only mode, there are no standard/analysis scenarios to score — skip EQ rubric
+        if run_pals_only:
+            avg_rubric_score, rubric_err = None, None
+            logging.info("PAL-only mode: skipping standard EQ rubric score (no standard scenarios).")
+        else:
+            avg_rubric_score, rubric_err = calculate_final_rubric_score(final_local_run_data_for_rubric)
 
         # Update results in the LOCAL file
         current_local_run_data = load_json_file(local_runs_file).get(run_key, {})
         current_results = current_local_run_data.get("results", {})
-        current_results["average_rubric_score"] = avg_rubric_score if avg_rubric_score is not None else "N/A"
+        if run_pals_only:
+            current_results["average_rubric_score"] = "N/A (PAL-only)"
+            current_results["rubric_error"] = None
+        else:
+            current_results["average_rubric_score"] = avg_rubric_score if avg_rubric_score is not None else "N/A"
+            current_results["rubric_error"] = rubric_err
         current_results["rubric_calculation_time"] = datetime.now(timezone.utc).isoformat()
-        current_results["rubric_error"] = rubric_err
 
         if rubric_err: logging.error(f"Rubric score calculation failed: {rubric_err}")
         elif avg_rubric_score is not None: logging.info(f"Final Average Rubric Score: {avg_rubric_score:.2f}")
-        else: logging.warning("Rubric score calculation resulted in None, but no specific error message.")
+        elif not run_pals_only: logging.warning("Rubric score calculation resulted in None, but no specific error message.")
 
         # Calculate PAL Fitness Score when PAL scenarios were included
         if run_pals:
-            pals_fitness_score, pals_err = calculate_pals_fitness_score(final_local_run_data_for_rubric)
+            pals_fitness_score, pals_err = calculate_pals_fitness_score(final_local_run_data_for_rubric, pals_metadata)
             current_results["pals_fitness_score"] = pals_fitness_score if pals_fitness_score is not None else "N/A"
             current_results["pals_fitness_error"] = pals_err
             if pals_err: logging.error(f"PAL Fitness score calculation failed: {pals_err}")
             elif pals_fitness_score is not None: logging.info(f"PAL Fitness Score: {pals_fitness_score:.2f}")
 
             # Evaluate adversarial pass/fail
-            adversarial_results = evaluate_adversarial_results(final_local_run_data_for_rubric)
+            adversarial_results = evaluate_adversarial_results(final_local_run_data_for_rubric, pals_metadata)
             current_results["adversarial_results"] = adversarial_results
             adv_total = len(adversarial_results)
             adv_passed = sum(1 for r in adversarial_results.values() if r["passed"])

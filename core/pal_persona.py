@@ -18,12 +18,23 @@ class PalPersonaConfig:
     greeting: Optional[str] = None
     model: Optional[str] = None
     context: Optional[str] = None
+    persona_name: Optional[str] = None
+    persona_id: Optional[str] = None
 
     def build_system_prompt(self) -> str:
         """Return the full system prompt, appending context if present."""
         if not self.context:
             return self.system_prompt
         return f"{self.system_prompt}\n\n# Conversational Context\n\n{self.context}"
+
+    def display_name(self, model_name: str) -> str:
+        """Return a human-readable label for this persona run.
+
+        Uses persona_name if available, otherwise falls back to model_name alone.
+        """
+        if self.persona_name:
+            return f"{self.persona_name} ({model_name})"
+        return model_name
 
 
 def load_pal_persona(
@@ -55,6 +66,8 @@ def load_pal_persona(
     greeting = None
     model = None
     context = None
+    persona_name = None
+    persona_id = None
 
     # Try parsing as JSON
     try:
@@ -62,6 +75,8 @@ def load_pal_persona(
         if isinstance(data, dict) and "system_prompt" in data:
             system_prompt = data["system_prompt"]
             greeting = data.get("greeting") or None
+            persona_name = data.get("persona_name") or None
+            persona_id = data.get("persona_id") or None
             # Extract model from layers.llm.model
             layers = data.get("layers")
             if isinstance(layers, dict):
@@ -74,7 +89,8 @@ def load_pal_persona(
             if context and not context.strip():
                 context = None
             logging.info(
-                "Loaded PAL persona from JSON: greeting=%s, model=%s",
+                "Loaded PAL persona from JSON: name=%s, greeting=%s, model=%s",
+                persona_name or "none",
                 "yes" if greeting else "no",
                 model or "none",
             )
@@ -101,9 +117,15 @@ def load_pal_persona(
             context = external_context
             logging.info("Loaded external context from %s", context_path)
 
+    # Derive persona_name from filename if not set from JSON
+    if not persona_name:
+        persona_name = path.stem  # e.g. "hudson_v5" from "personas/hudson_v5.json"
+
     return PalPersonaConfig(
         system_prompt=system_prompt,
         greeting=greeting,
         model=model,
         context=context,
+        persona_name=persona_name,
+        persona_id=persona_id,
     )

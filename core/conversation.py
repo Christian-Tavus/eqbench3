@@ -257,7 +257,10 @@ class ScenarioTask:
                     formatted_prompt = user_prompt # Maybe add word count hint here too?
 
                 # Add user prompt to history
-                if not current_messages or current_messages[-1]["role"] == "assistant":
+                # "system" check: PAL scenarios prepend system messages, so the
+                # last message can be "system" (or "assistant" for greeting) on
+                # the first turn.
+                if not current_messages or current_messages[-1]["role"] in ("assistant", "system"):
                     current_messages.append({"role": "user", "content": formatted_prompt})
                 elif current_messages[-1]["role"] == "user" and current_messages[-1]["content"] != formatted_prompt:
                      logging.warning(f"Overwriting last user message at turn {turn_index+1} for {self.scenario_id} (Iter {self.iteration_index}).")

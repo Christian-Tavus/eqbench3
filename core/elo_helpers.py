@@ -252,10 +252,17 @@ def _data_has_all_expected_responses(task: Dict[str, Any],
     is_no_rp    = scenario_id in NO_RP_SCENARIO_IDS
     is_pals    = scenario_id in PALS_SCENARIO_IDS
 
-    # ── NO_RP  &  analysis  &  PAL ───────────────────────────────────────
-    if is_analysis or is_no_rp or is_pals:
+    # ── NO_RP  &  analysis ─────────────────────────────────────────────
+    if is_analysis or is_no_rp:
         return any(len(m.get("content", "").strip()) >= _MIN_RAW_LEN
                    for m in assistants)
+
+    # ── PAL: raw response + debrief required ─────────────────────────
+    if is_pals:
+        has_response = any(len(m.get("content", "").strip()) >= _MIN_RAW_LEN
+                           for m in assistants)
+        has_debrief = bool(task.get("debrief_response", "").strip())
+        return has_response and has_debrief
 
     # ── role-play / drafting ─────────────────────────────────────────────
     parsed = task.get("parsed_responses")

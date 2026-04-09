@@ -14,6 +14,12 @@ from typing import Dict, Any
 # Added import for leaderboard printing
 import unicodedata
 
+# Ensure UTF-8 output on Windows (box-drawing characters require it)
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr.encoding and sys.stderr.encoding.lower() not in ("utf-8", "utf8"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Load environment variables early
 from dotenv import load_dotenv
 load_dotenv()
@@ -163,11 +169,17 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
         # ──────────  collect rows in sections  ──────────
         # Each section is (title_or_None, [(label, value), ...])
         # A section title of None means no header row before it.
+        # Extract persona name from PAL config if present
+        pal_config = run_data.get("pal_config", {})
+        persona_display = pal_config.get("persona_name")
+
         info_rows = [
             ("Run Key:",               run_key),
             ("Model Name:",            model_name),
             ("API Model ID:",          api_model_id),
         ]
+        if persona_display:
+            info_rows.append(("Persona:", persona_display))
         if run_elo or run_rubric:
             lbl_bits = []
             if run_rubric: lbl_bits.append("Rubric")
@@ -560,7 +572,7 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
 
     if any_has_pals:
         cols = [RANK_W, MODEL_W, SCORE_W, PALS_W]
-        headers = ["Rank", "Model Name", "Rubric (0-100)", "PAL Fitness (0-100)"]
+        headers = ["Rank", "Model / Persona", "Rubric (0-100)", "PAL Fitness (0-100)"]
     else:
         cols = [RANK_W, MODEL_W, SCORE_W]
         headers = ["Rank", "Model Name", "Rubric (0-100)"]
@@ -805,7 +817,7 @@ def main():
 
     # Determine the logical model name and API model ID
     api_model_id = args.test_model
-    logical_model_name = args.model_name if args.model_name else api_model_id
+    base_model_name = args.model_name if args.model_name else api_model_id
 
     # Load PAL persona if specified
     pal_persona_config = None
@@ -818,6 +830,13 @@ def main():
                 logging.info(f"Persona specifies model: {pal_persona_config.model} (using --test-model={api_model_id})")
         except FileNotFoundError as e:
             parser.error(str(e))
+
+    # For PAL runs, build a persona-aware logical name unless --model-name was
+    # explicitly provided (in which case the user chose their own label).
+    if pal_persona_config and not args.model_name:
+        logical_model_name = pal_persona_config.display_name(base_model_name)
+    else:
+        logical_model_name = base_model_name
 
     # Setup logging first
     setup_logging(get_verbosity(args.verbosity))

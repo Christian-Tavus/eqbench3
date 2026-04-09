@@ -24,6 +24,9 @@ def test_load_plain_text_persona():
         assert config.greeting is None
         assert config.model is None
         assert config.context is None
+        # persona_name derived from filename (temp file name stem)
+        assert config.persona_name is not None
+        assert config.persona_id is None
     finally:
         os.unlink(path)
 
@@ -52,6 +55,10 @@ def test_load_full_persona_json():
         assert config.greeting == "Hey there! How's your day going?"
         assert config.model == "tavus-gemini-2.5-flash"
         assert config.context == "User prefers morning check-ins."
+        assert config.persona_name == "Sage"
+        assert config.persona_id == "p_abc123"
+        # display_name should combine persona name with model
+        assert config.display_name("gpt-4o") == "Sage (gpt-4o)"
     finally:
         os.unlink(path)
 
@@ -70,6 +77,9 @@ def test_load_minimal_persona_json():
         assert config.greeting is None
         assert config.model is None
         assert config.context is None
+        # No persona_name in JSON → derived from filename
+        assert config.persona_name is not None
+        assert config.persona_id is None
     finally:
         os.unlink(path)
 

@@ -198,6 +198,9 @@ def do_pairwise_judge(
     is_analysis = scenario_id in ANALYSIS_SCENARIO_IDS
     is_pals = scenario_id in PALS_SCENARIO_IDS
 
+    if is_pals and not pals_scenario_notes:
+        logging.warning("PAL scenario notes not loaded — pairwise judging will use fallback '[No scenario notes available]'.")
+
     # --- 1. build standard / legacy strings --------------------------------
     formatted_history_A = format_conversation_history(
         history_A,

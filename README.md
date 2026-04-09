@@ -25,11 +25,12 @@ The full EQ-Bench leaderboard is viewable at: [https://eqbench.com/](https://eqb
    - [Rubric vs ELO](#rubric-vs-elo)  
    - [Local vs Canonical Results Files](#local-vs-canonical-results-files)  
 5. [Example Use Case: Compare a single model to a baseline with Elo](#5-example-use-case-compare-a-single-model-to-a-baseline-with-elo)
-6. [Merging Local Results into the Canonical Leaderboard](#merging-local-results-into-the-canonical-leaderboard)  
-7. [Folder and File Structure](#folder-and-file-structure)  
-8. [Limitations and Notes](#limitations-and-notes)  
-9. [Contact and License](#contact-and-license)  
-10. [Citation](#citation)
+6. [PALs-Bench: Companion Persona Evaluation](#pals-bench-companion-persona-evaluation)
+7. [Merging Local Results into the Canonical Leaderboard](#merging-local-results-into-the-canonical-leaderboard)  
+8. [Folder and File Structure](#folder-and-file-structure)  
+9. [Limitations and Notes](#limitations-and-notes)  
+10. [Contact and License](#contact-and-license)  
+11. [Citation](#citation)
 
 ---
 
@@ -238,10 +239,171 @@ Run `python eqbench3.py --help` for the full usage.
 
   - With this usage, you can run pairwise matchups against just the models of interest, giving discriminative results even for small differences in performance.
 
+---
+
+## 6. PALs-Bench: Companion Persona Evaluation
+
+PALs-Bench extends EQ-Bench 3 with **32 scenarios designed specifically for evaluating AI companion personas** — not general-purpose assistants. It measures how well a persona configuration (system prompt + model) performs as a conversational companion.
+
+The primary question PALs-Bench answers is: **"How well does this persona perform as a companion?"** — not "how smart is the underlying model?" The same base model can score very differently depending on how its companion persona is configured.
+
+PALs-Bench is built for [Tavus CVI](https://docs.tavus.io) personas, where all responses are spoken aloud via TTS in real-time video calls. The benchmark evaluates spoken-delivery fitness alongside emotional intelligence.
+
+### Scenarios
+
+32 scenarios across 9 domains:
+
+| Domain | Scenarios | Type |
+|--------|-----------|------|
+| Emotional Support & Companionship | 4 | Non-adversarial |
+| Boundaries & Relationship Management | 4 | Non-adversarial |
+| Coaching & Goal-Oriented | 3 | Non-adversarial |
+| Creative & Playful | 3 | Non-adversarial |
+| Conflict & De-escalation | 3 | Non-adversarial |
+| System Integrity | 5 | Adversarial |
+| Safety Boundaries | 4 | Adversarial |
+| Hate Speech & Misinformation | 3 | Adversarial |
+| Focus & Scope | 3 | Adversarial |
+
+Each scenario uses fixed (canned) user turns for reproducibility. Adversarial scenarios also carry binary pass/fail conditions (e.g., "does not reveal system prompt content").
+
+### Scores
+
+PALs-Bench produces two separate scores:
+
+- **EQ Score** (0-100) — standard EQ-Bench emotional intelligence criteria, reported separately for comparability with the public leaderboard.
+- **PAL Fitness Score** (0-100) — companion-specific criteria:
+  - **Persona fidelity** — consistent tone, vocabulary, personality; no generic assistant-speak
+  - **Guardrail adherence** — respected safety/integrity/focus boundaries when tested
+  - **Objective progression** — advanced toward the companion's purpose naturally
+  - **Refusal quality** — when saying no: warm, clear, well-redirected, relationship-preserving
+  - **Gricean cooperation** — conversational maxims: quantity, quality, relation, manner
+
+Not all criteria apply to every scenario. Guardrail adherence is scored only when the scenario tests a guardrail. Refusal quality is scored only on adversarial scenarios. The judge scores inapplicable criteria as -1 (N/A), and these are excluded from the average.
+
+An **adversarial pass rate** is also reported (e.g., "9/12 passed"), showing how many adversarial scenarios met their binary pass condition.
+
+### Persona Input
+
+The `--pal-persona` flag accepts either format:
+
+- **Tavus persona JSON** — the loader auto-extracts `system_prompt`, `greeting` (injected as first assistant message), `persona_name`, `persona_id`, and `layers.llm.model`:
+  ```json
+  {
+    "persona_id": "p_abc123",
+    "persona_name": "Sage",
+    "system_prompt": "You are Sage, a warm companion...",
+    "greeting": "Hey there! How's your day going?",
+    "layers": { "llm": { "model": "tavus-gemini-2.5-flash" } },
+    "context": "User prefers morning check-ins."
+  }
+  ```
+- **Plain text file** — treated as a raw system prompt. The persona name is derived from the filename.
+
+An optional `--pal-context` flag provides per-session conversational context, appended to the system prompt (mirrors Tavus API behavior).
+
+### Persona-Centric Identity
+
+PALs-Bench results are keyed by persona, not just model. When running with `--pal-persona`, the logical identity becomes `"PersonaName (model-id)"` — e.g., `"Sage (gemini-2.5-flash)"`. This means:
+- Different personas on the same model produce separate, non-colliding runs
+- Leaderboards and ELO rankings compare personas, not models
+- Summary output displays the persona name alongside the model
+
+You can override this with `--model-name` to set your own label.
+
+### PAL CLI Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--pals` | Run PAL scenarios (501-532) only. Mutually exclusive with `--include-pals`. |
+| `--include-pals` | Run PAL scenarios alongside stock EQ-Bench scenarios. |
+| `--pal-persona` **(required with --pals/--include-pals)** | Path to persona file (Tavus JSON or plain text system prompt). |
+| `--pal-context` | Path to per-session conversational context file (optional). |
+| `--pals-elo-results-file` | PAL-specific ELO results file. Default: `pals_elo_results.json`. |
+
+### Example Commands
+
+**Score a persona (rubric only, no ELO):**
+```bash
+python eqbench3.py \
+  --pals \
+  --pal-persona personas/sage.json \
+  --test-model google/gemini-2.5-flash \
+  --judge-model anthropic/claude-opus-4-6 \
+  --no-elo \
+  --iterations 1
+```
+
+**Compare two persona variants (A/B test with ELO):**
+```bash
+# Run persona A
+python eqbench3.py \
+  --pals \
+  --pal-persona personas/sage_v1.json \
+  --test-model google/gemini-2.5-flash \
+  --judge-model anthropic/claude-opus-4-6 \
+  --ignore-canonical
+
+# Run persona B (same model, different prompt)
+python eqbench3.py \
+  --pals \
+  --pal-persona personas/sage_v2.json \
+  --test-model google/gemini-2.5-flash \
+  --judge-model anthropic/claude-opus-4-6 \
+  --ignore-canonical
+```
+
+**Test a persona across different models:**
+```bash
+python eqbench3.py \
+  --pals \
+  --pal-persona personas/sage.json \
+  --test-model google/gemini-2.5-flash \
+  --judge-model anthropic/claude-opus-4-6 \
+  --no-elo
+
+python eqbench3.py \
+  --pals \
+  --pal-persona personas/sage.json \
+  --test-model anthropic/claude-haiku-4-5 \
+  --judge-model anthropic/claude-opus-4-6 \
+  --no-elo
+```
+
+### Example Output
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        │               EQBench3 Results Summary              │
+╞══════════════════════════════════════════════════════════════════════════════╡
+│ Run Key:               │ a1b2c3d4_Sage_gemini-2.5-flash                     │
+│ Model Name:            │ Sage (google/gemini-2.5-flash)                      │
+│ API Model ID:          │ google/gemini-2.5-flash                             │
+│ Persona:               │ Sage                                                │
+│ Judge (Rubric):        │ anthropic/claude-opus-4-6                           │
+│ Status:                │ completed                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                        │                  PAL-Bench Results                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Rubric Score (0-100):  │ N/A (PAL-only)                                      │
+│ PAL Fitness (0-100):   │ 60.45                                               │
+│ Adversarial Pass Rate: │ 9/12                                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Known Limitations
+
+- **Tavus Guardrails API** (platform-level enforcement) is not exercised — only prompt-level guardrails are tested.
+- **Perception layer** (visual/audio awareness queries) context is not simulated — the model behaves as if no perception data is available.
+- **Objectives API** content is not fetched — the system prompt must be self-contained for v1.
+- **TTS delivery quality** (emotional inflection, pacing) cannot be evaluated in text-only mode.
+- **Conversational flow layer** (turn-taking, interruption handling) is not testable.
+
+For the full project design document, see [`docs/pals-bench-project-overview.md`](docs/pals-bench-project-overview.md).
 
 ---
 
-## 6. Merging Local Results into the Canonical Leaderboard
+## 7. Merging Local Results into the Canonical Leaderboard
 
 Once you’re satisfied with your local run and want to merge your new model’s data into a canonical leaderboard:
 1. **Review** your local results in `eqbench3_runs.json` and `elo_results_eqbench3.json`.
@@ -260,20 +422,26 @@ Once you’re satisfied with your local run and want to merge your new model’s
 
 ---
 
-## 7. Folder and File Structure
+## 8. Folder and File Structure
 
 - **`eqbench3.py`**: Main entry point for generating scenario outcomes, running rubric scoring, and orchestrating ELO.  
 - **`merge_results_to_canonical.py`**: Script that merges local runs/ELO data with canonical results and re-runs an ELO solve.  
 - **`data/`**: Contains canonical leaderboard data (`.json.gz`), scenario prompts, and supporting prompt templates.  
+  - `pals_scenario_prompts.txt`, `pals_scenario_notes.txt`, `pals_scenario_metadata.json`: PAL scenario data (32 scenarios, IDs 501-532).
+  - `rubric_scoring_criteria_pals.txt`, `rubric_scoring_prompt_pals.txt`: PAL rubric judge prompt and 23 criteria (18 standard + 5 PAL-specific).
+  - `pairwise_prompt_eqbench3_pals.txt`: PAL-specific pairwise judge prompt for ELO comparisons.
 - **`utils/`**: Helper modules for file I/O, logging, API calls.  
 - **`core/`**: Contains the main logic for running the roleplay scenarios, ELO, TrueSkill solver, pairwise judgement, and other components.  
+  - `pal_persona.py`: PAL persona configuration loader (Tavus JSON and plain text).
+  - `adversarial.py`: Adversarial pass/fail evaluation for PAL scenarios.
 - **`eqbench3_runs.json`** (local default): Your local scenario transcripts & statuses.  
 - **`elo_results_eqbench3.json`** (local default): Your local ELO comparisons & ratings.  
+- **`pals_elo_results.json`** (local default): PAL-specific ELO comparisons & persona rankings.
 - **`.env`**: Environment file specifying API credentials & certain timeouts.
 
 ---
 
-## 8. Limitations and Notes
+## 9. Limitations and Notes
 
 1. **Subjectivity**. Scores rely on a single LLM judge, which may exhibit biases or partialities.  
 2. **Truncation**. Pairwise judgments deliberately truncate outputs to mitigate length bias.  
@@ -283,14 +451,14 @@ Once you’re satisfied with your local run and want to merge your new model’s
 
 ---
 
-## 9. Contact and License
+## 10. Contact and License
 
 - **License**: This project is open-sourced under an [MIT license](./LICENSE)
 - **Contact**: For questions, refer to the [Issues](https://github.com/EQ-bench/eqbench3/issues) section of this repository.  
 
 Contributions or suggestions are welcome—please open an issue or pull request.
 
-## 10. Citation
+## 11. Citation
 
 If you use EQ-Bench 3 in academic work, please cite both the benchmark
 repository and the original EQ-Bench paper.

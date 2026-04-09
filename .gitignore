@@ -1,9 +1,33 @@
+# Environment & secrets
 .env
-backup
-*.json.tmp
-*.log
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Local run data
+*.json.tmp
+backup/
+logs/
+
+# Persona configs (may contain proprietary prompts)
 persona_configs/
+
+# AI dev tooling
+.claude/
+docs/superpowers/
+.cursor/
+.aider*
+.copilot/
+
+# OS
+.DS_Store
+Thumbs.db
