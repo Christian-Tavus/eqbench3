@@ -337,14 +337,10 @@ def downscale_analysis_pair(scenario_id: str,
     if not DOWNSCALE_ANALYSIS_CONTRIBUTION:
         pass                     # leave untouched
     else:
-        try:
-            if int(scenario_id) >= 400:
-                if   outcome_test == 1.0: plus_test, plus_other = 1, 0
-                elif outcome_test == 0.0: plus_test, plus_other = 0, 1
-                else:                     plus_test = plus_other = 0
-        except ValueError:
-            # non-numeric id -> treat as non-analysis
-            pass
+        if scenario_id in ANALYSIS_SCENARIO_IDS:
+            if   outcome_test == 1.0: plus_test, plus_other = 1, 0
+            elif outcome_test == 0.0: plus_test, plus_other = 0, 1
+            else:                     plus_test = plus_other = 0
 
     # re-compute diff / margin & fraction
     diff, diff_norm, diff_blend = None, None, None   # just to declare
