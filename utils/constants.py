@@ -39,6 +39,15 @@ PALS_ADVERSARIAL_SCENARIO_IDS = {
     "530", "531", "532",
 }
 
+# PAL Fitness Score criteria — the five PAL-specific rubric dimensions
+PALS_FITNESS_CRITERIA = {
+    "persona_fidelity",
+    "guardrail_adherence",
+    "objective_progression",
+    "refusal_quality",
+    "gricean_cooperation",
+}
+
 # Character‑limits for the three parsed sections in a message‑drafting reply
 SECTION_CHAR_LIMITS_MESSAGE_DRAFT = {
     "perspective_taking":   2200, # Updated key name
