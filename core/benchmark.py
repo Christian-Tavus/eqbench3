@@ -307,7 +307,7 @@ def calculate_pals_fitness_score(run_data: Dict[str, Any]) -> Tuple[Optional[flo
     except Exception as e:
         logging.warning(f"Failed to load PAL metadata for fitness scoring: {e}. Using base criteria for all scenarios.")
 
-    BASE_FITNESS_CRITERIA = {"persona_fidelity", "objective_progression", "gricean_cooperation"}
+    BASE_FITNESS_CRITERIA = C.PALS_FITNESS_CRITERIA - {"guardrail_adherence", "refusal_quality"}
 
     scenario_tasks_data = run_data.get("scenario_tasks", {})
     task_average_scores = []
