@@ -222,6 +222,19 @@ class ScenarioTask:
             self.conversation_history = []; self.parsed_responses = []
 
         current_messages = list(self.conversation_history)
+
+        # PAL: prepend system messages (and optional greeting) to API calls.
+        # System messages are NOT stored in conversation_history -- they're
+        # re-prepended each time (from self.system_messages) to keep serialized
+        # data clean.
+        if self.system_messages:
+            if not current_messages:
+                # Fresh start: system messages go first
+                current_messages = list(self.system_messages)
+            elif current_messages[0].get("role") != "system":
+                # Resuming: re-prepend if not already present
+                current_messages = list(self.system_messages) + current_messages
+
         turn_index = -1 # Initialize turn index
 
         try:
@@ -232,7 +245,8 @@ class ScenarioTask:
                     continue
 
                 logging.debug(f"Running turn {turn_index + 1}/{len(self.prompts)} for scenario {self.scenario_id} (Iter {self.iteration_index})")
-                no_rp_scenario = self.scenario_id in NO_RP_SCENARIO_IDS
+                is_pals = self.scenario_id in PALS_SCENARIO_IDS
+                no_rp_scenario = self.scenario_id in NO_RP_SCENARIO_IDS or is_pals
 
                 # Apply master prompt template if provided and applicable
                 if self.master_prompt_template and not no_rp_scenario:
@@ -297,7 +311,11 @@ class ScenarioTask:
                      current_messages.append({"role": "assistant", "content": assistant_response})
 
 
-                self.conversation_history = list(current_messages)
+                # Store conversation history WITHOUT system messages
+                # (system messages are re-prepended on resume from self.system_messages)
+                self.conversation_history = [
+                    m for m in current_messages if m.get("role") != "system"
+                ]
                 self._save_progress(save_queue, run_key)
 
             # Scenario completed successfully
@@ -367,6 +385,9 @@ class ScenarioTask:
 
 
         debrief_messages = list(self.conversation_history)
+        # PAL: prepend system messages so model stays in character during debrief
+        if self.system_messages:
+            debrief_messages = list(self.system_messages) + debrief_messages
         debrief_messages.append({"role": "user", "content": self.debrief_prompt})
 
         try:
@@ -481,7 +502,7 @@ class ScenarioTask:
             if role_label == "User":
                 processed_content = raw_content # User content is used as is
             else: # Assistant message
-                is_no_rp = self.scenario_id in NO_RP_SCENARIO_IDS
+                is_no_rp = self.scenario_id in NO_RP_SCENARIO_IDS or self.scenario_id in PALS_SCENARIO_IDS
                 is_drafting = self.scenario_id in MESSAGE_DRAFTING_SCENARIO_IDS
 
                 # Determine how to process/truncate based on type and flag
@@ -557,6 +578,10 @@ class ScenarioTask:
             # Only add debrief if it's expected by the template (i.e., not analysis)
             if not is_analysis:
                 format_args["debrief"] = debrief_text
+
+            # PAL: add scenario_notes if available (used by PAL rubric template)
+            if self.scenario_notes is not None:
+                format_args["scenario_notes"] = self.scenario_notes
 
             final_rubric_prompt = rubric_prompt_template.format(**format_args)
 
