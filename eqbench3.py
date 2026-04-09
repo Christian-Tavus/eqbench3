@@ -122,6 +122,11 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
         # --- Adversarial Pass Rate ---
         adversarial_pass_rate = results.get("adversarial_pass_rate")
 
+        # --- PAL ELO Score ---
+        pals_elo_raw = results.get("pals_elo_raw")
+        pals_elo_norm = results.get("pals_elo_normalized")
+        pals_elo_error = results.get("pals_elo_error")
+
         import unicodedata
 
         # ──────────  helper: printable width  ──────────
@@ -184,11 +189,25 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
             ("ELO (Normalised):",      elo_norm_str),
         ]
 
+        pals_elo_rows = []
+        if pals_elo_raw is not None and pals_elo_raw != "N/A":
+            pals_elo_raw_str = f"{pals_elo_raw:.2f}" if isinstance(pals_elo_raw, (int, float)) else str(pals_elo_raw)
+            pals_elo_norm_str = f"{pals_elo_norm:.2f}" if isinstance(pals_elo_norm, (int, float)) else str(pals_elo_norm)
+            if pals_elo_error:
+                pals_elo_raw_str = f"Error ({pals_elo_error[:20]}...)"
+                pals_elo_norm_str = pals_elo_raw_str
+            pals_elo_rows = [
+                ("PAL ELO Raw:",           pals_elo_raw_str),
+                ("PAL ELO (Normalised):",  pals_elo_norm_str),
+            ]
+
         sections = [
             (None, info_rows),
             ("PAL-Bench Results" if has_pals_data else None, scoring_rows),
             ("ELO Analysis Results", elo_rows),
         ]
+        if pals_elo_rows:
+            sections.append(("PAL ELO Results", pals_elo_rows))
 
         # Flatten for column width calculation
         rows = [row for _, section_rows in sections for row in section_rows]
@@ -352,6 +371,113 @@ def print_leaderboard_summary(elo_data: Dict[str, Any], highlight_model: str):
         print(row_str)
 
     print(BOTTOM)
+
+
+def print_pals_leaderboard_summary(elo_data: Dict[str, Any], highlight_model: str):
+    """Prints a formatted PAL ELO leaderboard summary, sorted by ELO Norm."""
+    if not elo_data:
+        print("\n[INFO] No PAL ELO data available to display leaderboard.")
+        return
+
+    # --- Prepare data ---
+    leaderboard_entries = []
+    for model, data in elo_data.items():
+        if model == "__metadata__" or not isinstance(data, dict):
+            continue
+        elo_norm = data.get("elo_norm", 0.0)
+        elo_raw = data.get("elo", "N/A")
+        sigma = data.get("sigma", "N/A")
+        ci_low_norm = data.get("ci_low_norm", "N/A")
+        ci_high_norm = data.get("ci_high_norm", "N/A")
+
+        ci_str = "N/A"
+        if ci_low_norm != "N/A" and ci_high_norm != "N/A":
+            try:
+                ci_str = f"{ci_low_norm:.0f} - {ci_high_norm:.0f}"
+            except (TypeError, ValueError):
+                ci_str = "[Err]"
+
+        leaderboard_entries.append({
+            "name": model,
+            "elo_norm": elo_norm if isinstance(elo_norm, (int, float)) else 0.0,
+            "elo_norm_disp": f"{elo_norm:.0f}" if isinstance(elo_norm, (int, float)) else str(elo_norm),
+            "elo_raw_disp": f"{elo_raw:.0f}" if isinstance(elo_raw, (int, float)) else str(elo_raw),
+            "ci_norm_disp": ci_str,
+            "sigma_disp": f"{sigma:.1f}" if isinstance(sigma, (int, float)) else str(sigma),
+        })
+
+    leaderboard_entries.sort(key=lambda x: x["elo_norm"], reverse=True)
+
+    # --- Formatting Helpers ---
+    def cell_width(s: str) -> int:
+        w = 0
+        for ch in s: w += 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+        return w
+
+    def crop_to_width(s: str, max_w: int, ellipsis="…") -> str:
+        s = str(s)
+        if cell_width(s) <= max_w: return s + " " * (max_w - cell_width(s))
+        keep_w = max_w - cell_width(ellipsis)
+        out, current_w = "", 0
+        for ch in s:
+            ch_w = 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+            if current_w + ch_w > keep_w: break
+            out += ch
+            current_w += ch_w
+        return out + ellipsis + " " * (max_w - cell_width(out + ellipsis))
+
+    COL_PAD = 1
+    RANK_W = 4
+    MODEL_W = 35
+    ELO_NORM_W = 8
+    ELO_RAW_W = 8
+    CI_W = 12
+    SIGMA_W = 7
+
+    cols = [RANK_W, MODEL_W, ELO_NORM_W, ELO_RAW_W, CI_W, SIGMA_W]
+    LINE = "─"
+
+    segments = [LINE * (w + 2 * COL_PAD) for w in cols]
+    ROW_SEP_INNER = "┼".join(segments)
+    ROW_SEP = f"├{ROW_SEP_INNER}┤"
+    BOX_W = len(ROW_SEP)
+
+    TOP = "┌" + LINE * (BOX_W - 2) + "┐"
+    BOTTOM = "└" + LINE * (BOX_W - 2) + "┘"
+    TITLE_SEP = "╞" + LINE * (BOX_W - 2) + "╡"
+
+    headers = ["Rank", "Persona Config", "ELO Norm", "ELO Raw", "95% CI Norm", "Sigma"]
+    header_cells = [
+        crop_to_width(h, w).center(w)
+        for h, w in zip(headers, cols)
+    ]
+    header_parts = [f"{' ' * COL_PAD}{c}{' ' * COL_PAD}" for c in header_cells]
+    header_row = f"│{'│'.join(header_parts)}│"
+
+    print("\n" + TOP)
+    print(f"│{'PAL-Bench ELO Rankings'.center(BOX_W - 2)}│")
+    print(TITLE_SEP)
+    print(header_row)
+    print(ROW_SEP)
+
+    for rank, entry in enumerate(leaderboard_entries, 1):
+        is_highlighted = entry["name"] == highlight_model
+        prefix = ">" if is_highlighted else " "
+        rank_str = f"{prefix}{rank}"
+
+        cells = [
+            crop_to_width(rank_str, RANK_W),
+            crop_to_width(entry["name"], MODEL_W),
+            crop_to_width(entry["elo_norm_disp"], ELO_NORM_W).rjust(ELO_NORM_W),
+            crop_to_width(entry["elo_raw_disp"], ELO_RAW_W).rjust(ELO_RAW_W),
+            crop_to_width(entry["ci_norm_disp"], CI_W).center(CI_W),
+            crop_to_width(entry["sigma_disp"], SIGMA_W).rjust(SIGMA_W),
+        ]
+        row_str = f"│{' ' * COL_PAD}" + f"{' ' * COL_PAD}│{' ' * COL_PAD}".join(cells) + f"{' ' * COL_PAD}│"
+        print(row_str)
+
+    print(BOTTOM)
+
 
 def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
     """Prints a formatted leaderboard summary based on Rubric Scores."""
@@ -838,7 +964,23 @@ def main():
                 logging.warning(f"Skipping leaderboard display because ELO analysis reported an error: {elo_step_error}")
         else:
             logging.info("Skipping leaderboard display because ELO analysis was disabled.")
-            
+
+        # Print PAL ELO Leaderboard if PAL ELO was run
+        if run_elo_flag and (args.pals or args.include_pals):
+            pals_elo_error = final_run_data.get("results", {}).get("pals_elo_error")
+            if not pals_elo_error:
+                try:
+                    logging.info(f"Loading PAL ELO data from {args.pals_elo_results_file} for leaderboard display.")
+                    final_pals_elo_data = load_json_file(args.pals_elo_results_file)
+                    if final_pals_elo_data:
+                        print_pals_leaderboard_summary(final_pals_elo_data, logical_model_name)
+                    else:
+                        logging.warning(f"Could not load PAL ELO data from {args.pals_elo_results_file}.")
+                except Exception as e:
+                    logging.error(f"Failed to print PAL ELO leaderboard: {e}", exc_info=True)
+            else:
+                logging.warning(f"Skipping PAL ELO leaderboard: {pals_elo_error}")
+
         print_summary_box(run_key, args.runs_file, run_elo_flag, run_rubric_flag)
 
 
