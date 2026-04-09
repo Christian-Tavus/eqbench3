@@ -114,6 +114,38 @@ def test_rubric_summary_no_pals_column_when_absent():
     assert "PAL Fitness" not in output, f"PAL column should be absent:\n{output}"
 
 
+def test_summary_box_pals_only_run_shows_na_eq_score():
+    """In a --pals only run, EQ Score should show N/A (no standard scenarios)."""
+    runs = {
+        "test_run": {
+            "model_name": "test-model",
+            "api_model_id": "test-model-api",
+            "status": "completed",
+            "start_time": "2026-04-09T10:00:00+00:00",
+            "end_time": "2026-04-09T10:30:00+00:00",
+            "results": {
+                "average_rubric_score": "N/A",
+                "rubric_error": "No tasks reached the 'rubric_scored' state.",
+                "pals_fitness_score": 16.0,
+                "adversarial_pass_rate": "14/16",
+            },
+        }
+    }
+    path = _write_runs_file(runs)
+    try:
+        with patch("sys.stdout", new_callable=StringIO) as mock_out:
+            print_summary_box("test_run", path, run_elo=False, run_rubric=True)
+            output = mock_out.getvalue()
+
+        # PAL Fitness should still show
+        assert "PAL Fitness" in output
+        assert "80.00" in output  # 16.0 * 5 = 80.0
+        # Rubric score row should show the error gracefully (not crash)
+        assert "Error" in output or "N/A" in output
+    finally:
+        os.unlink(path)
+
+
 def test_adversarial_summary_prints_breakdown():
     """Adversarial summary should show per-scenario pass/fail."""
     adversarial_results = {
