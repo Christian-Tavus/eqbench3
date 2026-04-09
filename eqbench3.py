@@ -155,33 +155,43 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
         ROW_SEP    = "├" + LINE * (BOX_W - 2) + "┤"
         TITLE_SEP  = "╞" + LINE * (BOX_W - 2) + "╡"
 
-        # ──────────  collect rows first  ──────────
-        rows = [
+        # ──────────  collect rows in sections  ──────────
+        # Each section is (title_or_None, [(label, value), ...])
+        # A section title of None means no header row before it.
+        info_rows = [
             ("Run Key:",               run_key),
-            ("Model Name:",            model_name), # Changed label
-            ("API Model ID:",          api_model_id), # Added API ID
+            ("Model Name:",            model_name),
+            ("API Model ID:",          api_model_id),
         ]
         if run_elo or run_rubric:
             lbl_bits = []
             if run_rubric: lbl_bits.append("Rubric")
             if run_elo:   lbl_bits.append("ELO")
-            rows.append((f"Judge ({'/'.join(lbl_bits)}):", judge_model))
-
-        rows.extend([
+            info_rows.append((f"Judge ({'/'.join(lbl_bits)}):", judge_model))
+        info_rows.extend([
             ("Status:",                run_status),
             ("Duration:",              duration_str),
-            ("Rubric Score (0‑100):",  rubric_score_100_str),
         ])
 
+        scoring_rows = [("Rubric Score (0‑100):",  rubric_score_100_str)]
         if has_pals_data:
-            rows.append(("PAL Fitness (0‑100):", pals_fitness_100_str))
+            scoring_rows.append(("PAL Fitness (0‑100):", pals_fitness_100_str))
             if adversarial_pass_rate:
-                rows.append(("Adversarial Pass Rate:", adversarial_pass_rate))
+                scoring_rows.append(("Adversarial Pass Rate:", adversarial_pass_rate))
 
-        rows.extend([
+        elo_rows = [
             ("ELO Raw:",               elo_raw_str),
             ("ELO (Normalised):",      elo_norm_str),
-        ])
+        ]
+
+        sections = [
+            (None, info_rows),
+            ("PAL-Bench Results" if has_pals_data else None, scoring_rows),
+            ("ELO Analysis Results", elo_rows),
+        ]
+
+        # Flatten for column width calculation
+        rows = [row for _, section_rows in sections for row in section_rows]
 
         # ──────────  calculate column widths  ──────────
         max_label = max(cell_width(lbl) for lbl, _ in rows)
@@ -205,19 +215,13 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
         print("\n" + TOP)
         print(make_row("", "EQBench3 Results Summary".center(value_col)))
         print(TITLE_SEP)
-        for (lbl, val) in rows:
-            if lbl == "Duration:":
+        for section_title, section_rows in sections:
+            if section_title is not None:
                 print(ROW_SEP)
-            if lbl == "Rubric Score (0‑100):":
-                print(ROW_SEP)
-                if has_pals_data:
-                    print(make_row("", "PAL-Bench Results".center(value_col)))
-                    print(ROW_SEP)
-            if lbl == "ELO Raw:":
-                print(ROW_SEP)
-                print(make_row("", "ELO Analysis Results".center(value_col)))
-                print(ROW_SEP)
-            print(make_row(lbl, str(val)))
+                print(make_row("", section_title.center(value_col)))
+            print(ROW_SEP)
+            for (lbl, val) in section_rows:
+                print(make_row(lbl, str(val)))
         print(BOTTOM)
 
 
@@ -382,7 +386,7 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
 
         # PAL Fitness Score
         pals_0_20 = results.get("pals_fitness_score")
-        pals_100 = 0.0
+        pals_100 = None
         pals_disp = "—"
         if isinstance(pals_0_20, (int, float)):
             pals_100 = pals_0_20 * 5.0
@@ -800,11 +804,13 @@ def main():
         elif not run_rubric_flag:
             logging.info("Skipping Rubric leaderboard display because Rubric scoring was disabled.")
 
+        # Load run data once for adversarial summary and ELO error check
+        final_run_data = load_json_file(args.runs_file).get(run_key, {})
+
         # Print Adversarial Summary if PAL data is present
         if run_rubric_flag and (args.pals or args.include_pals):
             try:
-                final_run_data_for_adv = load_json_file(args.runs_file).get(run_key, {})
-                adv_results = final_run_data_for_adv.get("results", {}).get("adversarial_results", {})
+                adv_results = final_run_data.get("results", {}).get("adversarial_results", {})
                 if adv_results:
                     print_adversarial_summary(adv_results)
             except Exception as e:
@@ -812,8 +818,6 @@ def main():
 
         # Print Leaderboard Summary if ELO was run successfully
         if run_elo_flag:
-            # Check the status in the run file to see if ELO step had an error stored
-            final_run_data = load_json_file(args.runs_file).get(run_key, {})
             elo_step_error = final_run_data.get("results", {}).get("elo_error")
 
             if not elo_step_error:
