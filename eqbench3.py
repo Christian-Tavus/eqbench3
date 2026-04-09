@@ -106,6 +106,22 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
             elo_raw_str = f"{elo_raw:.2f}" if isinstance(elo_raw, (int, float)) else str(elo_raw)
             elo_norm_str = f"{elo_norm:.2f}" if isinstance(elo_norm, (int, float)) else str(elo_norm)
 
+        # --- PAL Fitness Score (Calculate 0-100) ---
+        pals_fitness_0_20 = results.get("pals_fitness_score")
+        pals_fitness_error = results.get("pals_fitness_error")
+        has_pals_data = pals_fitness_0_20 is not None and pals_fitness_0_20 != "Skipped"
+        pals_fitness_100_str = "N/A"
+
+        if pals_fitness_error:
+            pals_fitness_100_str = f"Error ({pals_fitness_error[:20]}...)"
+        elif isinstance(pals_fitness_0_20, (int, float)):
+            pals_fitness_100_str = f"{pals_fitness_0_20 * 5.0:.2f}"
+        elif pals_fitness_0_20 is not None:
+            pals_fitness_100_str = str(pals_fitness_0_20)
+
+        # --- Adversarial Pass Rate ---
+        adversarial_pass_rate = results.get("adversarial_pass_rate")
+
         import unicodedata
 
         # ──────────  helper: printable width  ──────────
@@ -155,6 +171,14 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
             ("Status:",                run_status),
             ("Duration:",              duration_str),
             ("Rubric Score (0‑100):",  rubric_score_100_str),
+        ])
+
+        if has_pals_data:
+            rows.append(("PAL Fitness (0‑100):", pals_fitness_100_str))
+            if adversarial_pass_rate:
+                rows.append(("Adversarial Pass Rate:", adversarial_pass_rate))
+
+        rows.extend([
             ("ELO Raw:",               elo_raw_str),
             ("ELO (Normalised):",      elo_norm_str),
         ])
@@ -185,6 +209,11 @@ def print_summary_box(run_key: str, local_runs_file: str, run_elo: bool, run_rub
             if lbl == "Duration:":
                 print(ROW_SEP)
             if lbl == "Rubric Score (0‑100):":
+                print(ROW_SEP)
+                if has_pals_data:
+                    print(make_row("", "PAL-Bench Results".center(value_col)))
+                    print(ROW_SEP)
+            if lbl == "ELO Raw:":
                 print(ROW_SEP)
                 print(make_row("", "ELO Analysis Results".center(value_col)))
                 print(ROW_SEP)
@@ -328,6 +357,7 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
 
     # --- Prepare data ---
     rubric_entries = []
+    any_has_pals = False
     for run_key, run_data in runs_data.items():
         if not isinstance(run_data, dict):
             continue
@@ -350,12 +380,23 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
         elif rubric_score_0_20 is not None: # Handle other non-numeric strings like "N/A"
              score_disp = str(rubric_score_0_20)
 
+        # PAL Fitness Score
+        pals_0_20 = results.get("pals_fitness_score")
+        pals_100 = 0.0
+        pals_disp = "—"
+        if isinstance(pals_0_20, (int, float)):
+            pals_100 = pals_0_20 * 5.0
+            pals_disp = f"{pals_100:.1f}"
+            any_has_pals = True
+
         # Only include entries that have a valid score attempt (not skipped and has results)
         if "results" in run_data and rubric_score_0_20 != "Skipped":
             rubric_entries.append({
                 "name": model_name,
                 "score_100": score_100,
                 "score_disp": score_disp,
+                "pals_100": pals_100,
+                "pals_disp": pals_disp,
             })
 
     # Sort by Rubric Score (0-100) descending
@@ -383,10 +424,17 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
     # --- Table Parameters ---
     COL_PAD = 1
     RANK_W = 4
-    MODEL_W = 50 # Wider for model names
+    MODEL_W = 40 if any_has_pals else 50  # Narrower when PAL column is present
     SCORE_W = 15 # Width for "XXX.X / 100"
+    PALS_W = 17  # Width for PAL Fitness (0-100) column
 
-    cols = [RANK_W, MODEL_W, SCORE_W]
+    if any_has_pals:
+        cols = [RANK_W, MODEL_W, SCORE_W, PALS_W]
+        headers = ["Rank", "Model Name", "Rubric (0-100)", "PAL Fitness (0-100)"]
+    else:
+        cols = [RANK_W, MODEL_W, SCORE_W]
+        headers = ["Rank", "Model Name", "Rubric (0-100)"]
+
     LINE = "─"
 
     # --- Separator and Box Width Calculation ---
@@ -401,7 +449,6 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
     TITLE_SEP = "╞" + LINE * (BOX_W - 2) + "╡"
 
     # --- Header Row ---
-    headers = ["Rank", "Model Name", "Rubric (0-100)"]
     header_cells = [
         crop_to_width(h, w).center(w)
         for h, w in zip(headers, cols)
@@ -426,6 +473,8 @@ def print_rubric_summary(runs_data: Dict[str, Any], highlight_model: str):
             crop_to_width(entry["name"], MODEL_W),
             crop_to_width(entry["score_disp"], SCORE_W).rjust(SCORE_W),
         ]
+        if any_has_pals:
+            cells.append(crop_to_width(entry["pals_disp"], PALS_W).rjust(PALS_W))
         row_parts = [f"{' ' * COL_PAD}{cell_content}{' ' * COL_PAD}" for cell_content in cells]
         row_str = f"│{'│'.join(row_parts)}│"
         print(row_str)
