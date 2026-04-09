@@ -282,10 +282,26 @@ class TestCalculatePalsFitnessScore:
 
         assert err is None
         assert isinstance(score, float)
-        # Can be stored directly in: {"results": {"pals_fitness_score": score}}
-        results = {"average_rubric_score": 14.5, "pals_fitness_score": score}
-        assert "pals_fitness_score" in results
-        assert isinstance(results["pals_fitness_score"], float)
+        assert score == 14.5  # mean(15.0, 14.0), where 501=mean(14,16,15) and 518=mean(12,14,16,18,10)
+
+    def test_all_criteria_minus_one_drops_task(self, tmp_path):
+        """A task where all applicable criteria are -1 is dropped; if it's the only task, returns None."""
+        metadata_file = tmp_path / "meta.json"
+        metadata_file.write_text(json.dumps(_metadata_with()))
+
+        run_data = _make_run_data([
+            ("501", {
+                "persona_fidelity": -1,
+                "objective_progression": -1,
+                "gricean_cooperation": -1,
+            }),
+        ])
+
+        with patch("core.benchmark.C.PALS_SCENARIO_METADATA_FILE", str(metadata_file)):
+            score, err = calculate_pals_fitness_score(run_data)
+
+        assert score is None
+        assert err is not None
 
 
 if __name__ == "__main__":

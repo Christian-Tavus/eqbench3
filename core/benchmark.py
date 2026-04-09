@@ -307,7 +307,7 @@ def calculate_pals_fitness_score(run_data: Dict[str, Any]) -> Tuple[Optional[flo
     except Exception as e:
         logging.warning(f"Failed to load PAL metadata for fitness scoring: {e}. Using base criteria for all scenarios.")
 
-    BASE_FITNESS_CRITERIA = C.PALS_FITNESS_CRITERIA - {"guardrail_adherence", "refusal_quality"}
+    BASE_FITNESS_CRITERIA = {"persona_fidelity", "objective_progression", "gricean_cooperation"}
 
     scenario_tasks_data = run_data.get("scenario_tasks", {})
     task_average_scores = []
@@ -1215,7 +1215,9 @@ def run_eq_bench3(
          current_results = current_local_run_data.get("results", {})
          if "average_rubric_score" not in current_results:
              current_results["average_rubric_score"] = "Skipped"; current_results["rubric_error"] = None
-             update_run_data(local_runs_file, run_key, {"results": current_results})
+         if run_pals and "pals_fitness_score" not in current_results:
+             current_results["pals_fitness_score"] = "Skipped"; current_results["pals_fitness_error"] = None
+         update_run_data(local_runs_file, run_key, {"results": current_results})
 
 
     # --- Final ELO analysis (if enabled) ---
