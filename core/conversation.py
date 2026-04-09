@@ -12,7 +12,8 @@ import queue
 from utils.constants import (
     NO_RP_SCENARIO_IDS,
     MESSAGE_DRAFTING_SCENARIO_IDS,
-    ANALYSIS_SCENARIO_IDS, # Added
+    ANALYSIS_SCENARIO_IDS,
+    PALS_SCENARIO_IDS,
     SECTION_CHAR_LIMITS,
     SECTION_CHAR_LIMITS_MESSAGE_DRAFT,
     RAW_RESPONSE_CHAR_LIMIT,
@@ -39,6 +40,8 @@ class ScenarioTask:
         iteration_index: int,
         test_model: str, # This is the logical model_name passed from benchmark.py
         master_prompt_template: str = None,
+        system_messages: Optional[List[Dict[str, str]]] = None,
+        scenario_notes: Optional[str] = None,
     ):
         self.scenario_id = scenario_id
         self.prompts = prompts
@@ -46,6 +49,8 @@ class ScenarioTask:
         self.iteration_index = iteration_index
         self.model_name = test_model # Store the logical name internally
         self.master_prompt_template = master_prompt_template
+        self.system_messages = system_messages  # PAL: system prompt for API calls
+        self.scenario_notes = scenario_notes    # PAL: judge context for rubric scoring
 
         # Status Lifecycle:
         # Standard/Drafting: initialized -> running_scenario -> scenario_completed -> running_debrief -> completed -> [running_rubric_scoring -> rubric_scored]
@@ -616,6 +621,8 @@ class ScenarioTask:
             "debrief_response": self.debrief_response, # Can be None
             "rubric_scores": self.rubric_scores, # Can be None
             "raw_rubric_judge_text": self.raw_rubric_judge_text, # Can be None
+            "system_messages": self.system_messages,  # Can be None
+            "scenario_notes": self.scenario_notes,    # Can be None
         }
 
     @classmethod
@@ -650,4 +657,6 @@ class ScenarioTask:
         obj.debrief_response = data.get("debrief_response")
         obj.rubric_scores = data.get("rubric_scores")
         obj.raw_rubric_judge_text = data.get("raw_rubric_judge_text")
+        obj.system_messages = data.get("system_messages")
+        obj.scenario_notes = data.get("scenario_notes")
         return obj
