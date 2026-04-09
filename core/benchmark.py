@@ -17,6 +17,7 @@ import queue
 import threading
 import statistics # For averaging rubric scores
 from pathlib import Path
+from core.adversarial import evaluate_adversarial_results
 
 from utils.file_io import load_json_file, update_run_data, save_json_file
 from utils.api import APIClient
@@ -1210,6 +1211,14 @@ def run_eq_bench3(
             current_results["pals_fitness_error"] = pals_err
             if pals_err: logging.error(f"PAL Fitness score calculation failed: {pals_err}")
             elif pals_fitness_score is not None: logging.info(f"PAL Fitness Score: {pals_fitness_score:.2f}")
+
+            # Evaluate adversarial pass/fail
+            adversarial_results = evaluate_adversarial_results(final_local_run_data_for_rubric)
+            current_results["adversarial_results"] = adversarial_results
+            adv_total = len(adversarial_results)
+            adv_passed = sum(1 for r in adversarial_results.values() if r["passed"])
+            current_results["adversarial_pass_rate"] = f"{adv_passed}/{adv_total}" if adv_total > 0 else "N/A"
+            logging.info(f"Adversarial results: {adv_passed}/{adv_total} passed")
 
         update_run_data(local_runs_file, run_key, {"results": current_results})
     else:
