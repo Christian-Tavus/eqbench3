@@ -9,6 +9,7 @@ from utils.constants import (
     NO_RP_SCENARIO_IDS,
     MESSAGE_DRAFTING_SCENARIO_IDS,
     ANALYSIS_SCENARIO_IDS,
+    PALS_SCENARIO_IDS,
     SECTION_CHAR_LIMITS,
     SECTION_CHAR_LIMITS_MESSAGE_DRAFT,
     RAW_RESPONSE_CHAR_LIMIT,
@@ -249,9 +250,10 @@ def _data_has_all_expected_responses(task: Dict[str, Any],
     is_analysis = scenario_id in ANALYSIS_SCENARIO_IDS
     is_drafting = scenario_id in MESSAGE_DRAFTING_SCENARIO_IDS
     is_no_rp    = scenario_id in NO_RP_SCENARIO_IDS
+    is_pals    = scenario_id in PALS_SCENARIO_IDS
 
-    # ── NO_RP  &  analysis ───────────────────────────────────────────────
-    if is_analysis or is_no_rp:
+    # ── NO_RP  &  analysis  &  PAL ───────────────────────────────────────
+    if is_analysis or is_no_rp or is_pals:
         return any(len(m.get("content", "").strip()) >= _MIN_RAW_LEN
                    for m in assistants)
 
