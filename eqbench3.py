@@ -522,6 +522,16 @@ def main():
         default=False,
         help="Delete all existing run data and ELO comparisons for the logical model name from the LOCAL files before running.",
     )
+    # --- PAL Companion Scenarios ---
+    pals_group = parser.add_mutually_exclusive_group()
+    pals_group.add_argument("--pals", action="store_true", default=False,
+                            help="Run PAL companion scenarios (501-532) only.")
+    pals_group.add_argument("--include-pals", action="store_true", default=False,
+                            help="Run PAL companion scenarios alongside stock EQ-Bench scenarios.")
+    parser.add_argument("--pal-persona", metavar="PATH",
+                        help="Path to PAL persona file (Tavus JSON or plain text system prompt). Required with --pals or --include-pals.")
+    parser.add_argument("--pal-context", metavar="PATH",
+                        help="(Optional) Path to per-session conversational context file to append to the persona system prompt.")
     # --- Removed file path arguments (now handled via constants) ---
     # parser.add_argument("--scenario-prompts-file", ...)
     # parser.add_argument("--debrief-prompt-file", ...)
@@ -531,9 +541,29 @@ def main():
 
     args = parser.parse_args()
 
+    # Validate PAL arguments
+    if (args.pals or args.include_pals) and not args.pal_persona:
+        parser.error("--pal-persona is required when using --pals or --include-pals.")
+    if args.pal_persona and not (args.pals or args.include_pals):
+        parser.error("--pal-persona requires either --pals or --include-pals.")
+    if args.pal_context and not args.pal_persona:
+        parser.error("--pal-context requires --pal-persona.")
+
     # Determine the logical model name and API model ID
     api_model_id = args.test_model
     logical_model_name = args.model_name if args.model_name else api_model_id
+
+    # Load PAL persona if specified
+    pal_persona_config = None
+    if args.pal_persona:
+        from core.pal_persona import load_pal_persona
+        try:
+            pal_persona_config = load_pal_persona(args.pal_persona, context_path=args.pal_context)
+            logging.info(f"Loaded PAL persona from {args.pal_persona}")
+            if pal_persona_config.model:
+                logging.info(f"Persona specifies model: {pal_persona_config.model} (using --test-model={api_model_id})")
+        except FileNotFoundError as e:
+            parser.error(str(e))
 
     # Setup logging first
     setup_logging(get_verbosity(args.verbosity))
@@ -599,6 +629,10 @@ def main():
             run_rubric=run_rubric_flag,
             redo_judging=args.redo_rubric_judging,
             truncate_for_rubric=False, # Hardcoded for now, could be arg
+            # PAL
+            run_pals_only=args.pals,
+            include_pals=args.include_pals,
+            pal_persona_config=pal_persona_config,
         )
 
         logging.info(f"EQBench3 run completed. Run key: {run_key}")
