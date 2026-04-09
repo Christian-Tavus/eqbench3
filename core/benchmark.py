@@ -1195,11 +1195,20 @@ def run_eq_bench3(
         current_results["average_rubric_score"] = avg_rubric_score if avg_rubric_score is not None else "N/A"
         current_results["rubric_calculation_time"] = datetime.now(timezone.utc).isoformat()
         current_results["rubric_error"] = rubric_err
-        update_run_data(local_runs_file, run_key, {"results": current_results})
 
         if rubric_err: logging.error(f"Rubric score calculation failed: {rubric_err}")
         elif avg_rubric_score is not None: logging.info(f"Final Average Rubric Score: {avg_rubric_score:.2f}")
         else: logging.warning("Rubric score calculation resulted in None, but no specific error message.")
+
+        # Calculate PAL Fitness Score when PAL scenarios were included
+        if run_pals:
+            pals_fitness_score, pals_err = calculate_pals_fitness_score(final_local_run_data_for_rubric)
+            current_results["pals_fitness_score"] = pals_fitness_score if pals_fitness_score is not None else "N/A"
+            current_results["pals_fitness_error"] = pals_err
+            if pals_err: logging.error(f"PAL Fitness score calculation failed: {pals_err}")
+            elif pals_fitness_score is not None: logging.info(f"PAL Fitness Score: {pals_fitness_score:.2f}")
+
+        update_run_data(local_runs_file, run_key, {"results": current_results})
     else:
          # Update results in the LOCAL file if skipped
          current_local_run_data = load_json_file(local_runs_file).get(run_key, {})
