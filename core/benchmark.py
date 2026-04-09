@@ -536,6 +536,7 @@ def run_eq_bench3(
     run_pals_only: bool = False,
     include_pals: bool = False,
     pal_persona_config: Optional[PalPersonaConfig] = None,
+    local_pals_elo_file: str = "pals_elo_results.json",
 ) -> str:
     """
     Main function to run the EQBench3 benchmark.
@@ -1249,6 +1250,13 @@ def run_eq_bench3(
             # ELO function now loads prompts internally based on scenario type
             # Pass the logical model name as test_model
             # Capture the returned snapshot and error message
+
+            # Exclude PAL scenarios from standard ELO when running alongside
+            standard_elo_filter = None
+            if include_pals:
+                all_scenario_ids = set(scenarios.keys())
+                standard_elo_filter = all_scenario_ids - C.PALS_SCENARIO_IDS
+
             final_elo_snapshot, elo_error_msg = run_elo_analysis_eqbench3(
                 run_key=run_key,
                 # ELO Files
@@ -1263,7 +1271,8 @@ def run_eq_bench3(
                 # Other params
                 scenarios_data=scenarios,
                 concurrency=num_threads,
-                recompute_existing=True
+                recompute_existing=True,
+                scenario_filter=standard_elo_filter,
             )
 
             # Extract scores for the current model from the *solved* snapshot returned
@@ -1321,6 +1330,50 @@ def run_eq_bench3(
         current_results["elo_error"] = None
         update_run_data(local_runs_file, run_key, {"results": current_results})
 
+    # --- PAL ELO analysis (separate pool, if enabled and PAL scenarios present) ---
+    if run_elo and run_pals:
+        logging.info("Starting PAL ELO analysis (separate pool)...")
+        try:
+            pals_elo_snapshot, pals_elo_error = run_elo_analysis_eqbench3(
+                run_key=run_key,
+                leaderboard_elo_file=None,  # No leaderboard for PAL ELO yet
+                local_elo_file=local_pals_elo_file,
+                merged_runs_data=merged_runs,
+                test_model=model_name,
+                judge_model=judge_model,
+                api_clients=api_clients,
+                scenarios_data=scenarios,
+                concurrency=num_threads,
+                recompute_existing=True,
+                scenario_filter=C.PALS_SCENARIO_IDS,  # Only PAL scenarios
+            )
+
+            pals_elo_raw, pals_elo_norm = "N/A", "N/A"
+            pals_model_elo = pals_elo_snapshot.get(model_name)
+            if isinstance(pals_model_elo, dict):
+                pals_elo_raw = pals_model_elo.get("elo", "N/A")
+                pals_elo_norm = pals_model_elo.get("elo_norm", "N/A")
+
+            current_local_run_data = load_json_file(local_runs_file).get(run_key, {})
+            current_results = current_local_run_data.get("results", {})
+            current_results.update({
+                "pals_elo_raw": pals_elo_raw,
+                "pals_elo_normalized": pals_elo_norm,
+                "pals_elo_error": pals_elo_error,
+            })
+            update_run_data(local_runs_file, run_key, {"results": current_results})
+
+            if pals_elo_error is None:
+                logging.info(f"PAL ELO scores for {model_name}: Raw={pals_elo_raw}, Normalized={pals_elo_norm}")
+            else:
+                logging.error(f"PAL ELO calculation finished with message: {pals_elo_error}")
+
+        except Exception as e:
+            logging.error(f"PAL ELO analysis failed: {e}", exc_info=True)
+            current_local_run_data = load_json_file(local_runs_file).get(run_key, {})
+            current_results = current_local_run_data.get("results", {})
+            current_results.update({"pals_elo_error": str(e), "pals_elo_raw": "Error", "pals_elo_normalized": "Error"})
+            update_run_data(local_runs_file, run_key, {"results": current_results})
 
     # --- Mark run as completed or completed_with_errors (in LOCAL file) ---
     final_status = "completed"

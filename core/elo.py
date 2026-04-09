@@ -124,7 +124,7 @@ def models_in_comparisons(comps: List[Dict[str, Any]]) -> Set[str]:
 def run_elo_analysis_eqbench3(
         run_key: str,
         # File Paths
-        leaderboard_elo_file: str,
+        leaderboard_elo_file: Optional[str],
         local_elo_file: str,
         # Run Data
         merged_runs_data: Dict[str, Any], # Merged leaderboard + local runs
@@ -135,7 +135,8 @@ def run_elo_analysis_eqbench3(
         # Other Params
         scenarios_data: Dict[str, List[str]],
         concurrency: int = 4,
-        recompute_existing: bool = True
+        recompute_existing: bool = True,
+        scenario_filter: Optional[Set[str]] = None,  # If set, only include these scenario IDs
 ) -> Tuple[Dict[str, Any], Optional[str]]: # Return final solved ratings and error message
     """
     Three‑stage ELO procedure using merged data, writing ONLY new comparisons to local ELO file.
@@ -243,6 +244,9 @@ def run_elo_analysis_eqbench3(
 
         for iter_idx, scenemap in run_blob.get("scenario_tasks", {}).items():
             for sid, task in scenemap.items():
+                # If a scenario filter is active, skip non-matching scenarios
+                if scenario_filter and sid not in scenario_filter:
+                    continue
                 is_analysis = sid in ANALYSIS_SCENARIO_IDS
                 # Analysis tasks are ready for ELO after 'scenario_completed' or 'rubric_scored'
                 # Standard/Drafting tasks are ready after 'completed' or 'rubric_scored'

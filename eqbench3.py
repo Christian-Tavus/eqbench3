@@ -623,6 +623,8 @@ def main():
     # --- File Paths ---
     parser.add_argument("--runs-file", default=C.DEFAULT_LOCAL_RUNS_FILE, help=f"File to store local run data (default: {C.DEFAULT_LOCAL_RUNS_FILE}).")
     parser.add_argument("--elo-results-file", default=C.DEFAULT_LOCAL_ELO_FILE, help=f"File to store local ELO results and comparisons (default: {C.DEFAULT_LOCAL_ELO_FILE}).")
+    parser.add_argument("--pals-elo-results-file", default=C.DEFAULT_LOCAL_PALS_ELO_FILE,
+                        help=f"File to store local PAL ELO results and comparisons (default: {C.DEFAULT_LOCAL_PALS_ELO_FILE}).")
     parser.add_argument("--leaderboard-runs-file", default=C.CANONICAL_LEADERBOARD_RUNS_FILE, help=f"Path to the canonical leaderboard runs file (read-only, default: {C.CANONICAL_LEADERBOARD_RUNS_FILE}).")
     parser.add_argument("--leaderboard-elo-file", default=C.CANONICAL_LEADERBOARD_ELO_FILE, help=f"Path to the canonical leaderboard ELO file (read-only, default: {C.CANONICAL_LEADERBOARD_ELO_FILE}).")
     # --- Run Control ---
@@ -759,6 +761,7 @@ def main():
             run_pals_only=args.pals,
             include_pals=args.include_pals,
             pal_persona_config=pal_persona_config,
+            local_pals_elo_file=args.pals_elo_results_file,
         )
 
         logging.info(f"EQBench3 run completed. Run key: {run_key}")
