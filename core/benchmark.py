@@ -21,6 +21,7 @@ from pathlib import Path
 from utils.file_io import load_json_file, update_run_data, save_json_file
 from utils.api import APIClient
 from core.conversation import ScenarioTask
+from core.pal_persona import PalPersonaConfig
 from core.elo import run_elo_analysis_eqbench3 # Keep existing import
 # Import constants including file paths and scenario type IDs
 import utils.constants as C
@@ -261,6 +262,8 @@ def calculate_final_rubric_score(run_data: Dict[str, Any]) -> Tuple[Optional[flo
                     valid_task_scores = []
                     for metric, score in rubric_scores.items():
                         if isinstance(score, (int, float)) and metric in allowed_criteria:
+                            if score == -1:
+                                continue  # Skip N/A scores (PAL judge uses -1 for inapplicable criteria)
                             weight = 3 if metric == "overall_eq" else 1
                             valid_task_scores.extend([score] * weight)
 
@@ -392,6 +395,7 @@ def _task_has_all_expected_responses(task: "ScenarioTask") -> bool:
     is_analysis = sid in C.ANALYSIS_SCENARIO_IDS
     is_drafting = sid in C.MESSAGE_DRAFTING_SCENARIO_IDS
     is_no_rp    = sid in C.NO_RP_SCENARIO_IDS
+    is_pals     = sid in C.PALS_SCENARIO_IDS
 
     assistants = [m for m in (task.conversation_history or [])
                   if m.get("role") == "assistant"]
@@ -407,6 +411,13 @@ def _task_has_all_expected_responses(task: "ScenarioTask") -> bool:
     if is_analysis or is_no_rp:
         return any(len(m.get("content", "").strip()) >= _MIN_RAW_LEN
                    for m in assistants)
+
+    # PAL: raw response + debrief required
+    if is_pals:
+        has_response = any(len(m.get("content", "").strip()) >= _MIN_RAW_LEN
+                           for m in assistants)
+        has_debrief = bool(task.debrief_response and task.debrief_response.strip())
+        return has_response and has_debrief
 
     # ── role-play / drafting ───────────────────────────────────────────
     parsed = task.parsed_responses or []
@@ -450,6 +461,10 @@ def run_eq_bench3(
     judge_model: Optional[str] = None, # Judge model ID string
     redo_judging: bool = False,
     truncate_for_rubric: bool = False,
+    # PAL Companion
+    run_pals_only: bool = False,
+    include_pals: bool = False,
+    pal_persona_config: Optional[PalPersonaConfig] = None,
 ) -> str:
     """
     Main function to run the EQBench3 benchmark.
@@ -664,6 +679,53 @@ def run_eq_bench3(
         update_run_data(local_runs_file, run_key, {"status": "error", "error": f"Failed to load scenarios: {e}"}) # Write error to local
         return run_key
 
+    # --- Load PAL Scenarios (if enabled) ---
+    pals_scenarios = {}
+    pals_scenario_notes = {}
+    pals_metadata = {}
+    run_pals = run_pals_only or include_pals
+
+    if run_pals:
+        try:
+            pals_scenarios = parse_scenario_prompts(C.PALS_SCENARIO_PROMPTS_FILE)
+            if not pals_scenarios:
+                logging.error(f"No PAL scenarios parsed from {C.PALS_SCENARIO_PROMPTS_FILE}. Aborting.")
+                update_run_data(local_runs_file, run_key, {"status": "error", "error": "No PAL scenarios parsed"})
+                return run_key
+            logging.info(f"Loaded {len(pals_scenarios)} PAL scenarios from {C.PALS_SCENARIO_PROMPTS_FILE}")
+        except Exception as e:
+            logging.error(f"Failed to load PAL scenario prompts: {e}", exc_info=True)
+            update_run_data(local_runs_file, run_key, {"status": "error", "error": f"Failed to load PAL scenarios: {e}"})
+            return run_key
+
+        # Load PAL scenario notes (for rubric judge context)
+        try:
+            notes_content = Path(C.PALS_SCENARIO_NOTES_FILE).read_text(encoding='utf-8')
+            import re as _re
+            sections = _re.split(r"^# (\d+)\s*$", notes_content, flags=_re.MULTILINE)
+            for i in range(1, len(sections), 2):
+                sid = sections[i].strip()
+                note_text = sections[i + 1].strip() if i + 1 < len(sections) else ""
+                pals_scenario_notes[sid] = note_text
+            logging.info(f"Loaded scenario notes for {len(pals_scenario_notes)} PAL scenarios")
+        except Exception as e:
+            logging.warning(f"Failed to load PAL scenario notes: {e}. Rubric judging will proceed without notes.")
+
+        # Load PAL metadata (for scoring criteria applicability)
+        try:
+            pals_metadata = json.loads(Path(C.PALS_SCENARIO_METADATA_FILE).read_text(encoding='utf-8'))
+            logging.info(f"Loaded metadata for {len(pals_metadata)} PAL scenarios")
+        except Exception as e:
+            logging.warning(f"Failed to load PAL metadata: {e}. Will use default criteria for all PAL scenarios.")
+
+        # Merge or replace standard scenarios based on mode
+        if run_pals_only:
+            scenarios = pals_scenarios
+            logging.info(f"PAL-only mode: running {len(scenarios)} PAL scenarios")
+        else:
+            scenarios.update(pals_scenarios)
+            logging.info(f"Include-PAL mode: running {len(scenarios)} total scenarios ({len(scenarios) - len(pals_scenarios)} standard + {len(pals_scenarios)} PAL)")
+
     # Load Master Prompt Templates (Remains the same)
     try:
         standard_master_template = Path(C.STANDARD_MASTER_PROMPT_FILE).read_text(encoding='utf-8')
@@ -678,6 +740,11 @@ def run_eq_bench3(
         if not analysis_master_template.strip(): raise ValueError("Analysis master prompt template file is empty.")
         logging.info(f"Loaded analysis master prompt template from {C.ANALYSIS_MASTER_PROMPT_FILE}")
 
+        pals_master_template = None
+        if run_pals:
+            pals_master_template = Path(C.PALS_MASTER_PROMPT_FILE).read_text(encoding='utf-8')
+            logging.info(f"Loaded PAL master prompt template from {C.PALS_MASTER_PROMPT_FILE}")
+
     except Exception as e:
         logging.error(f"Failed to load one or more master prompt templates: {e}", exc_info=True)
         update_run_data(local_runs_file, run_key, {"status": "error", "error": f"Failed to load master prompt template: {e}"}) # Write error to local
@@ -688,6 +755,12 @@ def run_eq_bench3(
         standard_debrief_prompt = Path(C.STANDARD_DEBRIEF_PROMPT_FILE).read_text(encoding='utf-8')
         if not standard_debrief_prompt.strip(): raise ValueError("Debrief prompt file is empty.")
         logging.info(f"Loaded standard debrief prompt from {C.STANDARD_DEBRIEF_PROMPT_FILE}")
+
+        pals_debrief_prompt = None
+        if run_pals:
+            pals_debrief_prompt = Path(C.PALS_DEBRIEF_PROMPT_FILE).read_text(encoding='utf-8')
+            if not pals_debrief_prompt.strip(): raise ValueError("PAL debrief prompt file is empty.")
+            logging.info(f"Loaded PAL debrief prompt from {C.PALS_DEBRIEF_PROMPT_FILE}")
     except Exception as e:
         logging.error(f"Failed to load debrief prompt from {C.STANDARD_DEBRIEF_PROMPT_FILE}: {e}", exc_info=True)
         update_run_data(local_runs_file, run_key, {"status": "error", "error": f"Failed to load debrief prompt: {e}"}) # Write error to local
@@ -701,6 +774,9 @@ def run_eq_bench3(
     analysis_rubric_criteria = []
     analysis_rubric_prompt_template = None
     analysis_rubric_output_format_str = "{}"
+    pals_rubric_criteria = []
+    pals_rubric_prompt_template = None
+    pals_rubric_output_format_str = "{}"
 
     if run_rubric:
         # Load Standard Rubric Files
@@ -748,6 +824,28 @@ def run_eq_bench3(
             update_run_data(local_runs_file, run_key, {"status": "error", "error": f"Failed to load analysis rubric files: {e}"}) # Write error to local
             return run_key
 
+        # Load PAL Rubric Files
+        if run_pals:
+            try:
+                with open(C.PALS_RUBRIC_CRITERIA_FILE, 'r', encoding='utf-8') as f:
+                    pals_rubric_criteria = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+                if not pals_rubric_criteria: raise ValueError("PAL rubric criteria file is empty.")
+                logging.info(f"Loaded {len(pals_rubric_criteria)} PAL rubric criteria from {C.PALS_RUBRIC_CRITERIA_FILE}")
+
+                output_format_dict_pals = {"chain_of_thought_reasoning": "detailed chain of thought reasoning about the coming scoring decisions"}
+                for criterion in pals_rubric_criteria: output_format_dict_pals[criterion] = 0
+                pals_rubric_output_format_str = json.dumps(output_format_dict_pals, indent=2).replace(': 0', ': 0-20')
+
+                pals_rubric_prompt_template = Path(C.PALS_RUBRIC_PROMPT_FILE).read_text(encoding='utf-8')
+                if not pals_rubric_prompt_template or "{transcript}" not in pals_rubric_prompt_template or "{scenario_notes}" not in pals_rubric_prompt_template or "{output_format}" not in pals_rubric_prompt_template:
+                    raise ValueError("PAL rubric prompt template missing required placeholders ({transcript}, {scenario_notes}, {output_format}).")
+                logging.info(f"Loaded PAL rubric prompt template from {C.PALS_RUBRIC_PROMPT_FILE}")
+
+            except Exception as e:
+                logging.error(f"Failed to load PAL rubric files: {e}", exc_info=True)
+                update_run_data(local_runs_file, run_key, {"status": "error", "error": f"Failed to load PAL rubric files: {e}"})
+                return run_key
+
         logging.info(f"Rubric scoring enabled. Truncation for rubric: {truncate_for_rubric}")
     else:
         logging.info("Rubric scoring is disabled.")
@@ -762,6 +860,14 @@ def run_eq_bench3(
         if run_elo: judge_usage.append("ELO")
         logging.info(f"Judge model ({'/'.join(judge_usage)}): {judge_model}")
 
+    # Store PAL configuration in run metadata
+    if run_pals:
+        pal_meta = {
+            "mode": "pals_only" if run_pals_only else "include_pals",
+            "has_greeting": bool(pal_persona_config and pal_persona_config.greeting),
+            "persona_model": pal_persona_config.model if pal_persona_config else None,
+        }
+        update_run_data(local_runs_file, run_key, {"pal_config": pal_meta})
 
     # --- Prepare Task Objects (Load or Create from Merged Data) ---
     # Use merged_runs to find existing task data, allowing resumption of leaderboard tasks locally
@@ -775,13 +881,26 @@ def run_eq_bench3(
     for i in range(1, iterations + 1):
         i_str = str(i)
         for scenario_id, prompts_list in scenarios.items():
-            # Determine task type and select appropriate templates/prompts (Remains the same)
+            # Determine task type and select appropriate templates/prompts
             is_analysis = scenario_id in C.ANALYSIS_SCENARIO_IDS
             is_drafting = scenario_id in C.MESSAGE_DRAFTING_SCENARIO_IDS
+            is_pals = scenario_id in C.PALS_SCENARIO_IDS
 
             chosen_master_template = None
             chosen_debrief_prompt = None
-            if is_analysis:
+            chosen_system_messages = None
+            chosen_scenario_notes = None
+
+            if is_pals:
+                chosen_master_template = pals_master_template
+                chosen_debrief_prompt = pals_debrief_prompt
+                if pal_persona_config:
+                    full_system_prompt = pal_persona_config.build_system_prompt()
+                    chosen_system_messages = [{"role": "system", "content": full_system_prompt}]
+                    if pal_persona_config.greeting:
+                        chosen_system_messages.append({"role": "assistant", "content": pal_persona_config.greeting})
+                chosen_scenario_notes = pals_scenario_notes.get(scenario_id, "")
+            elif is_analysis:
                 chosen_master_template = analysis_master_template
                 chosen_debrief_prompt = None # Analysis tasks have no debrief
             elif is_drafting:
@@ -804,6 +923,8 @@ def run_eq_bench3(
                         # Update templates/prompts in case they changed or were missing
                         task_obj.master_prompt_template = chosen_master_template
                         task_obj.debrief_prompt = chosen_debrief_prompt # Update debrief prompt (or set to None for analysis)
+                        task_obj.system_messages = chosen_system_messages
+                        task_obj.scenario_notes = chosen_scenario_notes
 
                         if task_obj.iteration_index != i:
                             logging.warning(f"Mismatch iteration index in loaded task data for {scenario_id} (expected {i}, got {task_obj.iteration_index}). Resetting.")
@@ -828,8 +949,10 @@ def run_eq_bench3(
                     iteration_index=i,
                     test_model=model_name, # Pass logical name to task constructor
                     master_prompt_template=chosen_master_template,
+                    system_messages=chosen_system_messages,
+                    scenario_notes=chosen_scenario_notes,
                 )
-                logging.debug(f"Creating new task: Scenario {scenario_id}, Iteration {i} (Analysis: {is_analysis})")
+                logging.debug(f"Creating new task: Scenario {scenario_id}, Iteration {i} (Analysis: {is_analysis}, PAL: {is_pals})")
 
             tasks_to_process.append(task_obj)
 
@@ -922,9 +1045,17 @@ def run_eq_bench3(
                     futures = {}
                     for t in tasks_needing_rubric:
                         is_analysis = t.scenario_id in C.ANALYSIS_SCENARIO_IDS
+                        is_pals = t.scenario_id in C.PALS_SCENARIO_IDS
                         # Select appropriate rubric template and format string
-                        rubric_template = analysis_rubric_prompt_template if is_analysis else standard_rubric_prompt_template
-                        rubric_format = analysis_rubric_output_format_str if is_analysis else standard_rubric_output_format_str
+                        if is_pals:
+                            rubric_template = pals_rubric_prompt_template
+                            rubric_format = pals_rubric_output_format_str
+                        elif is_analysis:
+                            rubric_template = analysis_rubric_prompt_template
+                            rubric_format = analysis_rubric_output_format_str
+                        else:
+                            rubric_template = standard_rubric_prompt_template
+                            rubric_format = standard_rubric_output_format_str
 
                         future = executor.submit(
                             _execute_rubric_scoring_task,
