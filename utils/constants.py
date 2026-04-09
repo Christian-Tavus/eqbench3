@@ -94,6 +94,7 @@ PALS_RUBRIC_CRITERIA_FILE = os.path.join(DATA_DIR, "rubric_scoring_criteria_pals
 PALS_RUBRIC_PROMPT_FILE = os.path.join(DATA_DIR, "rubric_scoring_prompt_pals.txt")
 PALS_DEBRIEF_PROMPT_FILE = os.path.join(DATA_DIR, "debrief_prompt_pals.txt")
 PALS_MASTER_PROMPT_FILE = os.path.join(DATA_DIR, "scenario_master_prompt_pals.txt")
+PALS_PAIRWISE_PROMPT_FILE = os.path.join(DATA_DIR, "pairwise_prompt_eqbench3_pals.txt")
 
 # --- NEW: Canonical Leaderboard File Paths ---
 CANONICAL_LEADERBOARD_RUNS_FILE = os.path.join(DATA_DIR, "canonical_leaderboard_results.json.gz")
@@ -102,6 +103,7 @@ CANONICAL_LEADERBOARD_ELO_FILE = os.path.join(DATA_DIR, "canonical_leaderboard_e
 # --- Default Local File Paths (used in argparse defaults) ---
 DEFAULT_LOCAL_RUNS_FILE = "eqbench3_runs.json"
 DEFAULT_LOCAL_ELO_FILE = "elo_results_eqbench3.json"
+DEFAULT_LOCAL_PALS_ELO_FILE = "pals_elo_results.json"
 
 
 MODEL_NAME_SUBS = {

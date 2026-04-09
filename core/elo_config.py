@@ -50,6 +50,7 @@ MAX_STAGE_LOOPS   = 4          # safety guard per stage
 rng = random.Random(42)
 scenario_notes: Dict[str, str] = {}
 analysis_scenario_notes: Dict[str, str] = {} # Separate notes for analysis tasks
+pals_scenario_notes: Dict[str, str] = {}  # Notes for PAL companion scenarios
 
 # ---------- completeness-check helpers ------------------------------------
 MANDATORY_SECTIONS_ROLEPLAY = {"thinking_feeling", "their_thinking_feeling", "response"}
