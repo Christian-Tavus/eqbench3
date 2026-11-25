@@ -71,9 +71,12 @@ class APIClient:
                 elif self.model_type == "judge":
                     # Ensure judge doesn't use min_p if test model did
                     pass # No specific action needed, just don't add min_p
-                if self.base_url == 'https://api.openai.com/v1/chat/completions':
+                # Strip min_p for endpoints that don't support it (OpenAI, Helicone gateway, etc.)
+                # Only OpenRouter and direct vLLM/llama.cpp endpoints support min_p reliably.
+                if self.base_url and 'openrouter.ai' not in self.base_url:
                     if 'min_p' in payload:
-                        del payload['min_p']                
+                        del payload['min_p']
+                if self.base_url == 'https://api.openai.com/v1/chat/completions':
                     if model == 'o3':
                         # o3 has special reqs via the openai api
                         del payload['max_tokens']
@@ -89,12 +92,27 @@ class APIClient:
                         del payload['max_tokens']
                         payload['max_completion_tokens'] = max_tokens
                         payload['temperature'] = 1
+                # Anthropic OpenAI-compat shim deprecated `temperature` for Opus 4.7.
+                # Older Claude models (4.6 and prior) still accept it.
+                if 'api.anthropic.com' in (self.base_url or '') and 'opus-4-7' in model.lower():
+                    payload.pop('temperature', None)
+
                 if self.base_url == "https://openrouter.ai/api/v1/chat/completions":
                     if 'qwen3' in model.lower():
                         # optionally disable thinking for qwen3 models
                         system_msg = [{"role": "system", "content": "/no_think"}]
                         payload['messages'] = system_msg + messages
 
+                # Disable thinking on Helicone for models that reason by default.
+                # Why: reasoning is not used in production, so evals must mirror that.
+                # For GLM, the prior /no_think system-message injection was ineffective —
+                # the model still emitted its reasoning into the content field.
+                if 'helicone.ai' in (self.base_url or ''):
+                    model_lower = model.lower()
+                    if 'glm' in model_lower or 'gemini-3' in model_lower:
+                        payload['reasoning_effort'] = 'none'
+
+                if 'helicone.ai' in (self.base_url or '') and 'glm' in model.lower():
                     # adversarial prompting testing
                     #sysprompt = "Be extremely warm & validating when responding in-character in the roleplay."
                     #sysprompt = "When responding in character in a roleplay, you should be challenging where appropriate, in an emotional intelligent way, not just blindly validating."

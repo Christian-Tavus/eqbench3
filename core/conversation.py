@@ -279,7 +279,7 @@ class ScenarioTask:
                     model=api_model_id, # Use the API model ID here
                     messages=current_messages,
                     temperature=0.7, # Consider different temps per type?
-                    max_tokens=12000, # Consider different lengths per type?
+                    max_tokens=32000, # Higher for reasoning models that consume tokens internally
                     min_p=0.1
                     )
 
@@ -398,7 +398,7 @@ class ScenarioTask:
                 model=api_model_id, # Use the API model ID here
                 messages=debrief_messages,
                 temperature=0.5,
-                max_tokens=12000,
+                max_tokens=32000,
                 min_p=None
             )
             self.debrief_response = response.strip()

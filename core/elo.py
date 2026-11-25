@@ -324,6 +324,9 @@ def run_elo_analysis_eqbench3(
     # ─────────────────────────── SAMPLING LOOP ────────────────────────────
     new_comparisons_generated_this_run = [] # Store only comparisons generated in this execution
     current_existing_matchups = initial_existing_matchups.copy() # Track matchups encountered during this run
+    # Ensure rank_window is bound even if every stage breaks before line 456.
+    # Safe default: no rank-window filter on the final solve.
+    rank_window = None
 
     for stage_idx, (radius_tiers, samples) in enumerate(SAMPLING_SCHEDULE, start=1):
         loops, stable = 0, False
